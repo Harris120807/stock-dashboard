@@ -13,7 +13,7 @@ market cap, scored on valuation multiples, technicals, and analyst sentiment.
 |---|---|---|
 | `main` | Legacy snapshot | Git proxy denies pushes — only `claude/*` branches are pushable. Changes to main need a PR the owner merges. |
 | `claude/pages` | `index.html` only — the published site | Force-pushed as ONE fresh commit per refresh, only by a pipeline run. Never hand-edit; it's overwritten on every refresh. |
-| `claude/state` | Pipeline home: `template.html`, `universe.json`, `analyst-state.json`, `watchlist-state.json`, `scripts/refresh.py`, `routines/*.md`, `README.md` | Normal commits; on push rejection `git pull --rebase origin claude/state` and retry. |
+| `claude/state` | Pipeline state: `template.html`, `universe.json`, `analyst-state.json`, `watchlist-state.json`, `routines/*.md` (docs), `README.md` | Normal commits; on push rejection `git pull --rebase origin claude/state` and retry. |
 | `claude/stock-dashboard-updates-*` | Dev/session branches | Per-session work. |
 
 ## Architecture
