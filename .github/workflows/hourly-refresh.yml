@@ -18,8 +18,6 @@ jobs:
     timeout-minutes: 14
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/checkout@v4
         with:
           ref: claude/state
           path: state
@@ -28,7 +26,7 @@ jobs:
         env:
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
         run: |
-          STATE_DIR=state OUT_DIR=out NOTIFY=0 python3 scripts/refresh.py
+          STATE_DIR=state OUT_DIR=out NOTIFY=0 python3 state/scripts/refresh.py
 
       - name: Publish page to claude/pages
         id: pages
@@ -47,7 +45,7 @@ jobs:
           cd state
           git config user.email "pipeline@claude.local"
           git config user.name "Stock Dashboard Pipeline"
-          git add watchlist-state.json
+          git add watchlist-state.json last-data.json
           git diff --cached --quiet && exit 0
           git commit -q -m "watchlist: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           git push origin claude/state || { git pull --rebase origin claude/state && git push origin claude/state; }

@@ -18,8 +18,6 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/checkout@v4
         with:
           ref: claude/state
           path: state
@@ -28,7 +26,7 @@ jobs:
         env:
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
         run: |
-          STATE_DIR=state OUT_DIR=out python3 scripts/weekly_universe.py
+          STATE_DIR=state OUT_DIR=out python3 state/scripts/weekly_universe.py
 
       - name: Push universe
         run: |
