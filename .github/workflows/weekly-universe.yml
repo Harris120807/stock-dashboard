@@ -1,0 +1,49 @@
+name: Weekly universe refresh
+
+on:
+  schedule:
+    - cron: "0 11 * * 1"   # Mondays, before the daily/hourly jobs
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dashboard-state
+  cancel-in-progress: false
+
+jobs:
+  universe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          ref: claude/state
+          path: state
+
+      - name: Recompute top 50 US + top 30 UK/EU universe
+        env:
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+        run: |
+          STATE_DIR=state OUT_DIR=out python3 scripts/weekly_universe.py
+
+      - name: Push universe
+        run: |
+          cd state
+          git config user.email "pipeline@claude.local"
+          git config user.name "Stock Dashboard Pipeline"
+          git add universe.json
+          git diff --cached --quiet && exit 0
+          git commit -q -m "universe: weekly refresh $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push origin claude/state || { git pull --rebase origin claude/state && git push origin claude/state; }
+
+      - name: Notify only if membership changed (ntfy)
+        run: |
+          if [ -s out/notify.txt ]; then
+            curl -sS -H "Title: Stock Dashboard Universe Updated" -H "Tags: bar_chart" \
+                 -H "Click: https://harris120807.github.io/stock-dashboard/" \
+                 -d "$(cat out/notify.txt)" https://ntfy.sh/harris-stockdash-3cb22f88
+          fi

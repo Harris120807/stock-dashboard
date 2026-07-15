@@ -18,32 +18,36 @@ market cap, scored on valuation multiples, technicals, and analyst sentiment.
 
 ## Architecture
 
-Three scheduled Routines (Claude Code triggers, all `create_new_session_on_fire`):
+The pipeline runs on **GitHub Actions** (scheduled workflows on `main`, secret
+`FINNHUB_API_KEY` in repo settings). Pure-Python stdlib scripts in `scripts/` —
+no Claude sessions in the loop:
 
-| Routine | Trigger ID | Cron (UTC) | Writes |
+| Workflow | Script | Cron (UTC) | Writes |
 |---|---|---|---|
-| Weekly universe refresh | `trig_01EZNpuGei4t6XJryyAXtEKG` | `0 11 * * 1` | `universe.json` |
-| Daily analyst prefetch | `trig_01Bn3hEqV1UWQn5r8eUwmTsf` | `0 12 * * 1-5` | `analyst-state.json` |
-| Hourly market refresh | `trig_01C1qZnkgCmAG9Y8HffytCYN` | `45 12-19 * * 1-5` | `claude/pages`, `watchlist-state.json`, ntfy push |
+| `weekly-universe.yml` | `scripts/weekly_universe.py` | `0 11 * * 1` | `universe.json`; ntfy only on membership change |
+| `daily-analyst.yml` | `scripts/daily_analyst.py` | `0 12 * * 1-5` | `analyst-state.json` |
+| `hourly-refresh.yml` | `scripts/refresh.py` | `45 12-19 * * 1-5` | `claude/pages`, `watchlist-state.json`, ntfy push |
 
-Full prompt sources: `routines/*.md` on `claude/state` (API key redacted there; the live
-key is in the trigger configs and in `template.html`).
+All three support `workflow_dispatch` for manual runs. Scripts read `FINNHUB_API_KEY`,
+`STATE_DIR` (checkout of `claude/state`), `OUT_DIR`; they only write files — the
+workflow steps do the git pushes and the ntfy notification (from `OUT_DIR/notify.txt`).
 
-**KNOWN LIMITATION (open as of 2026-07-15)**: sessions spawned by these triggers fetch
-data and send notifications fine, but their **git pushes never land** (no pre-authorized
-permission config — that capability was lost when the original http_api-created routines
-were replaced). So the hourly routine notifies the owner but cannot publish. Publishing
-currently happens from an interactive session running `scripts/refresh.py`. The agreed
-fix candidate is a **GitHub Actions port** (PR to main + `FINNHUB_API_KEY` repo secret) —
-awaiting owner go-ahead. If you solve this, update this section.
+**History note**: three Claude Routine triggers (`trig_01EZNpuGei4t6XJryyAXtEKG` weekly,
+`trig_01Bn3hEqV1UWQn5r8eUwmTsf` daily, `trig_01C1qZnkgCmAG9Y8HffytCYN` hourly) predate
+the Actions port. Their spawned sessions could fetch and notify but never push, so they
+were superseded; they should be disabled/deleted once Actions is confirmed running — if
+they're still enabled and Actions is live, the owner gets DOUBLE notifications. Their
+prompt sources remain in `routines/*.md` on `claude/state` as documentation of the logic.
 
 ## Running the pipeline manually
 
+Either trigger the workflow (Actions tab → workflow → Run workflow), or locally:
 ```
+git clone https://github.com/Harris120807/stock-dashboard.git repo && cd repo   # scripts on main
 git clone --depth 1 --branch claude/state https://github.com/Harris120807/stock-dashboard.git state
-cd state && FINNHUB_API_KEY=<key> STATE_DIR=. OUT_DIR=/tmp/run NOTIFY=0 python3 scripts/refresh.py
-# then push /tmp/run/index.html to claude/pages (force, one commit) and the updated
-# watchlist-state.json to claude/state — see routines/hourly-refresh.md Step 10.
+FINNHUB_API_KEY=<key> STATE_DIR=state OUT_DIR=/tmp/run NOTIFY=0 python3 scripts/refresh.py
+# then push /tmp/run/index.html to claude/pages (fresh single commit, force) and the
+# updated state/watchlist-state.json to claude/state — see .github/workflows/hourly-refresh.yml.
 ```
 `NOTIFY=1` sends the owner a phone push — only for real scheduled-equivalent runs.
 
@@ -94,17 +98,17 @@ them, then republish via `refresh.py`.
 
 ## Multi-agent coordination
 
-- **Lanes**: (1) UI/template → `template.html`; (2) scoring/pipeline → `scripts/refresh.py`
-  (+ mirror any behavior change into `routines/hourly-refresh.md`); (3) universe rules →
-  `routines/weekly-universe-refresh.md` + trigger prompt; (4) automation/infra → the
-  Actions port. Stay in your lane; state file *schemas* are shared contracts — changing
-  one requires updating every reader (refresh.py, routines, this file).
+- **Lanes**: (1) UI/template → `template.html` on `claude/state`; (2) scoring/pipeline →
+  `scripts/refresh.py` on `main`; (3) universe rules → `scripts/weekly_universe.py`;
+  (4) analyst data → `scripts/daily_analyst.py`; (5) infra → `.github/workflows/*`.
+  Scripts live on `main` (PRs, owner merges); state + template live on `claude/state`
+  (direct pushes OK). Stay in your lane; state file *schemas* are shared contracts —
+  changing one requires updating every reader (all three scripts + this file).
 - **Concurrency**: `claude/state` uses pull-rebase-retry; never force-push it.
   `claude/pages` is force-pushed single commits — never run two publishes at once.
-- **Trigger edits**: `update_trigger` on these (meta_mcp-created) triggers can change
-  name/cron/enabled only. Prompt changes = delete + recreate (keep `routines/*.md` in
-  sync, key redacted — the permission classifier blocks committing the key to git except
-  in `template.html` where the owner authorized it).
+- Schedule changes = edit the workflow cron on `main` via PR. The permission classifier
+  blocks committing the API key to git except in `template.html` where the owner
+  explicitly authorized it — scripts must read `FINNHUB_API_KEY` from the environment.
 - The permission classifier requires **explicit owner authorization in-conversation**
   for: exposing credentials anywhere new, pushing new infrastructure, deleting triggers.
   Ask the owner plainly; vague approvals get blocked.
@@ -118,4 +122,5 @@ them, then republish via `refresh.py`.
   routines (deleted by owner). Drive files (`stock-dashboard-*.json`, template v5) are
   orphaned — ignore them.
 - 2026-07-15: migrated to git state (`claude/state`), universe extended 50→80 with native
-  European listings, currency normalization added, per-stock refresh button shipped.
+  European listings, currency normalization added, per-stock refresh button shipped,
+  pipeline ported to GitHub Actions after Routine-spawned sessions proved unable to push.
