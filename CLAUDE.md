@@ -13,14 +13,15 @@ market cap, scored on valuation multiples, technicals, and analyst sentiment.
 |---|---|---|
 | `main` | Legacy snapshot | Git proxy denies pushes — only `claude/*` branches are pushable. Changes to main need a PR the owner merges. |
 | `claude/pages` | `index.html` only — the published site | Force-pushed as ONE fresh commit per refresh, only by a pipeline run. Never hand-edit; it's overwritten on every refresh. |
-| `claude/state` | Pipeline state: `template.html`, `universe.json`, `analyst-state.json`, `watchlist-state.json`, `routines/*.md` (docs), `README.md` | Normal commits; on push rejection `git pull --rebase origin claude/state` and retry. |
+| `claude/state` | Pipeline home: `scripts/*.py`, `template.html`, `universe.json`, `analyst-state.json`, `watchlist-state.json`, `last-data.json` (prior-run fallback), `routines/*.md` (docs), `README.md` | Normal commits; on push rejection `git pull --rebase origin claude/state` and retry. |
 | `claude/stock-dashboard-updates-*` | Dev/session branches | Per-session work. |
 
 ## Architecture
 
 The pipeline runs on **GitHub Actions** (scheduled workflows on `main`, secret
-`FINNHUB_API_KEY` in repo settings). Pure-Python stdlib scripts in `scripts/` —
-no Claude sessions in the loop:
+`FINNHUB_API_KEY` in repo settings). Pure-Python stdlib scripts in `scripts/` on
+`claude/state` (agents can hotfix them with a direct push — no PR needed); the
+workflows on `main` are thin runners. No Claude sessions in the loop:
 
 | Workflow | Script | Cron (UTC) | Writes |
 |---|---|---|---|
@@ -68,7 +69,10 @@ FINNHUB_API_KEY=<key> STATE_DIR=state OUT_DIR=/tmp/run NOTIFY=0 python3 scripts/
   itself is wrong (Equinor: NOK values labeled USD — hence the 3x cross-check against
   Yahoo screen values); OTC "F-suffix" ordinary lines are often dead (prefer Y-ADRs:
   RHHBY not RHHVF); HXSCL (SK Hynix OTC ADR) has no quote and no chart — unusable;
-  `divYield` is already a percent.
+  `divYield` is already a percent; **GitHub Actions runner IPs get rate-limited hard**
+  (free tier is 60 calls/min) — scripts pace Finnhub calls via `FINNHUB_PACE` (default
+  1.1s) with 429-aware backoff, and the hourly falls back to `last-data.json` for any
+  ticker Finnhub still refuses, so a blip degrades to "prior snapshot", never to nulls.
 - **Classification traps**: the foreign-name regex must match end-anchored, unstripped
   names (`p.l.c.`, `N.V.`); Rio Tinto/Sanofi carry no suffix → in KNOWN_FOREIGN; tax
   inversions (Linde, Eaton, Medtronic, Accenture…) are excluded from "European";
@@ -98,11 +102,10 @@ them, then republish via `refresh.py`.
 
 ## Multi-agent coordination
 
-- **Lanes**: (1) UI/template → `template.html` on `claude/state`; (2) scoring/pipeline →
-  `scripts/refresh.py` on `main`; (3) universe rules → `scripts/weekly_universe.py`;
-  (4) analyst data → `scripts/daily_analyst.py`; (5) infra → `.github/workflows/*`.
-  Scripts live on `main` (PRs, owner merges); state + template live on `claude/state`
-  (direct pushes OK). Stay in your lane; state file *schemas* are shared contracts —
+- **Lanes**: (1) UI/template → `template.html`; (2) scoring/pipeline → `scripts/refresh.py`;
+  (3) universe rules → `scripts/weekly_universe.py`; (4) analyst data →
+  `scripts/daily_analyst.py` — all on `claude/state` (direct pushes OK);
+  (5) infra → `.github/workflows/*` on `main` (PR, owner merges). Stay in your lane; state file *schemas* are shared contracts —
   changing one requires updating every reader (all three scripts + this file).
 - **Concurrency**: `claude/state` uses pull-rebase-retry; never force-push it.
   `claude/pages` is force-pushed single commits — never run two publishes at once.
