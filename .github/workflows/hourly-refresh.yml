@@ -31,11 +31,11 @@ jobs:
       - name: Publish page to claude/pages
         id: pages
         run: |
-          mkdir pub && cp out/index.html pub/ && cd pub
+          mkdir pub && cp out/index.html pub/ && cp -r state/pwa/. pub/ && cd pub
           git init -q -b claude/pages
           git config user.email "pipeline@claude.local"
           git config user.name "Stock Dashboard Pipeline"
-          git add index.html
+          git add -A
           git commit -q -m "auto refresh $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" claude/pages
 
