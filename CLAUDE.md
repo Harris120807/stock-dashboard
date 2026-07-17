@@ -111,6 +111,15 @@ them, then republish via `refresh.py`.
   (deliberately separate from the private pipeline topic — it's spam-exposed by
   design; owner subscribes to it read-only). Client-side throttle: 1/min, 5/day
   via localStorage. Never repoint it at the pipeline topic.
+  **Requests v2 contract**: the form resolves any input (name/ticker) to a canonical
+  ticker via Finnhub `/search`, then posts title `Stock request: <TICKER> (#N)`.
+  `refresh.py` polls the topic each run into `requests-log.json` on `claude/state`
+  (`{lastPollAt, byTicker: {T: {count, firstAt, lastAt}}}` — ntfy only caches ~12h,
+  the log is the durable record; weekend requests can miss the log but still hit the
+  owner's phone). The page reads the log + newer cache entries to compute N and to
+  tell users about duplicates. Ticker `TEST` is reserved for e2e checks — never
+  logged/counted. The title regex is a shared contract between template.html and
+  refresh.py — change both together.
 - **Deeper history**: `price-history-long.json` on `claude/state` =
   `{updatedAt, byTicker: {T: {t:[daynums], p:[daily closes, native ccy], st:[daynums],
   s:[combinedScore]}}}` — 5y daily closes (capped 1830d, seeded by
