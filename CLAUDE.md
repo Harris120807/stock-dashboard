@@ -26,7 +26,7 @@ no Claude sessions in the loop:
 |---|---|---|---|
 | `weekly-universe.yml` | `scripts/weekly_universe.py` | `0 11 * * 1` | `universe.json`; ntfy only on membership change |
 | `daily-analyst.yml` | `scripts/daily_analyst.py` | `0 12 * * 1-5` | `analyst-state.json` |
-| `hourly-refresh.yml` | `scripts/refresh.py` | `45 12-19 * * 1-5` | `claude/pages`, `watchlist-state.json`, ntfy push |
+| `hourly-refresh.yml` | `scripts/refresh.py` | `45 12-19 * * 1-5` (backup — cron-job.org is primary, see workflow comment) | `claude/pages` (page + `pwa/` copy), `watchlist-state.json`, `last-data.json`, `price-history.json`, `price-history-long.json`, `requests-log.json`, ntfy push |
 
 All three support `workflow_dispatch` for manual runs. Scripts read `FINNHUB_API_KEY`,
 `STATE_DIR` (checkout of `claude/state`), `OUT_DIR`; they only write files — the
@@ -107,19 +107,38 @@ them, then republish via `refresh.py`.
   it. Keep the score explanation in sync with scoring changes in `refresh.py`.
 - **Table density**: `colMode` localStorage ('full' default / 'compact'), chip
   `#colModeChip`; compact column set in `COMPACT_COLS`.
+- **Theme (2026-07-17, owner-chosen)**: dark blue. Single `--accent` CSS var drives
+  every interactive element (active tab/chips, focus rings, buttons, range toggles,
+  score overlay, `h1`) — light `#1e4f91`, dark `#3f7cc4`; surfaces are navy-tinted
+  (`--page` dark `#0a101d`). All FOUR theme blocks (base, `@media` dark,
+  `data-theme` dark/light) must define it. Chart *data* colors (`--series-*`,
+  good/critical) are a separate palette — never collapse them into the accent.
+  `theme-color` meta (in `refresh.py`'s wrapper) and `pwa/manifest.json` colors
+  must stay in sync with the navy page color.
+- **Tab icons** are inline single-colour stroke SVGs (`currentColor`, 1.8 width,
+  round caps) — no emoji. PWA icons in `pwa/` match the theme (navy bg, ascending
+  bars in accent blue) — regenerate together if the palette changes.
+- **Source-attribution policy (owner decision 2026-07-17)**: footer/header carry
+  only a one-line "Data: Finnhub & Yahoo Finance" credit; provider mechanics and
+  freshness details live ONLY in the Info gate. Don't re-add verbose provenance
+  to the visible chrome. Keep the Finnhub credit — likely a ToS requirement.
 - **Stock requests page** POSTs to public ntfy topic `harris-stockdash-req-a2962152`
   (deliberately separate from the private pipeline topic — it's spam-exposed by
-  design; owner subscribes to it read-only). Client-side throttle: 1/min, 5/day
+  design; owner subscribes to it read-only). Client-side throttle: 1/min, 10/day (rolling 24h)
   via localStorage. Never repoint it at the pipeline topic.
   **Requests v2 contract**: the form resolves any input (name/ticker) to a canonical
-  ticker via Finnhub `/search`, then posts title `Stock request: <TICKER> (#N)`.
+  ticker via Finnhub `/search`, then posts title `Stock request: <TICKER> (#N)` —
+  or, for batches (up to 5 per submission, one throttle hit, one notification),
+  `Stock requests (k): T1 (#n1), T2 (#n2)…`; the poller findall-parses `TICK (#N)`
+  pairs from any title starting `Stock request`.
   `refresh.py` polls the topic each run into `requests-log.json` on `claude/state`
   (`{lastPollAt, byTicker: {T: {count, firstAt, lastAt}}}` — ntfy only caches ~12h,
   the log is the durable record; weekend requests can miss the log but still hit the
   owner's phone). The page reads the log + newer cache entries to compute N and to
   tell users about duplicates. Ticker `TEST` is reserved for e2e checks — never
   logged/counted. The title regex is a shared contract between template.html and
-  refresh.py — change both together.
+  refresh.py — change both together. Owner confirmed subscribed to the request
+  topic and verified delivery end-to-end (2026-07-17).
 - **Deeper history**: `price-history-long.json` on `claude/state` =
   `{updatedAt, byTicker: {T: {t:[daynums], p:[daily closes, native ccy], st:[daynums],
   s:[combinedScore]}}}` — 5y daily closes (capped 1830d, seeded by
