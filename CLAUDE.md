@@ -11,17 +11,16 @@ market cap, scored on valuation multiples, technicals, and analyst sentiment.
 
 | Branch | Contents | Write rules |
 |---|---|---|
-| `main` | Legacy snapshot | Git proxy denies pushes — only `claude/*` branches are pushable. Changes to main need a PR the owner merges. |
+| `main` | Workflows + legacy snapshot | Changes go via PR. **Standing owner authorization (2026-07-16): Claude may open AND self-merge PRs for small pipeline/workflow changes.** Anything that changes what the system *does* — new data sources, notification behavior, spending money, big architecture — still needs the owner's explicit OK first. |
 | `claude/pages` | `index.html` only — the published site | Force-pushed as ONE fresh commit per refresh, only by a pipeline run. Never hand-edit; it's overwritten on every refresh. |
-| `claude/state` | Pipeline home: `scripts/*.py`, `template.html`, `universe.json`, `analyst-state.json`, `watchlist-state.json`, `last-data.json` (prior-run fallback), `routines/*.md` (docs), `README.md` | Normal commits; on push rejection `git pull --rebase origin claude/state` and retry. |
+| `claude/state` | Pipeline state: `template.html`, `universe.json`, `analyst-state.json`, `watchlist-state.json`, `routines/*.md` (docs), `README.md` | Normal commits; on push rejection `git pull --rebase origin claude/state` and retry. |
 | `claude/stock-dashboard-updates-*` | Dev/session branches | Per-session work. |
 
 ## Architecture
 
 The pipeline runs on **GitHub Actions** (scheduled workflows on `main`, secret
-`FINNHUB_API_KEY` in repo settings). Pure-Python stdlib scripts in `scripts/` on
-`claude/state` (agents can hotfix them with a direct push — no PR needed); the
-workflows on `main` are thin runners. No Claude sessions in the loop:
+`FINNHUB_API_KEY` in repo settings). Pure-Python stdlib scripts in `scripts/` —
+no Claude sessions in the loop:
 
 | Workflow | Script | Cron (UTC) | Writes |
 |---|---|---|---|
@@ -69,10 +68,7 @@ FINNHUB_API_KEY=<key> STATE_DIR=state OUT_DIR=/tmp/run NOTIFY=0 python3 scripts/
   itself is wrong (Equinor: NOK values labeled USD — hence the 3x cross-check against
   Yahoo screen values); OTC "F-suffix" ordinary lines are often dead (prefer Y-ADRs:
   RHHBY not RHHVF); HXSCL (SK Hynix OTC ADR) has no quote and no chart — unusable;
-  `divYield` is already a percent; **GitHub Actions runner IPs get rate-limited hard**
-  (free tier is 60 calls/min) — scripts pace Finnhub calls via `FINNHUB_PACE` (default
-  1.1s) with 429-aware backoff, and the hourly falls back to `last-data.json` for any
-  ticker Finnhub still refuses, so a blip degrades to "prior snapshot", never to nulls.
+  `divYield` is already a percent.
 - **Classification traps**: the foreign-name regex must match end-anchored, unstripped
   names (`p.l.c.`, `N.V.`); Rio Tinto/Sanofi carry no suffix → in KNOWN_FOREIGN; tax
   inversions (Linde, Eaton, Medtronic, Accenture…) are excluded from "European";
@@ -99,17 +95,40 @@ them, then republish via `refresh.py`.
   authorized this (2026-07-15), and also authorized it inside trigger prompts. Don't
   re-litigate; also don't copy the key into new public files without asking. Key value:
   see `template.html` on `claude/state` (deliberately not duplicated here).
+- **Pages/nav (2026-07-17 product split)**: the site is a hash-routed SPA — views
+  `#overview` (visuals/watchlist/earnings), `#table`, `#stock` (search + detail card),
+  `#compare`, `#requests`; `#TICKER` deep-links into `#stock`. Tab bar `#tabbar` is
+  fixed-bottom on mobile, sticky-top ≥900px. New views must be added to `VIEWS`,
+  given a `view-<name>` container, and a `.nav-tab`. Anything that draws from live
+  layout size must listen for the `viewchange` CustomEvent (hidden views have no
+  dimensions — see the compare page).
+- **First-visit gate** `#gate` ("Before you use…": not-advice, score methodology,
+  data caveats). Agreement stored as localStorage `sd-agreed-v1`; ℹ️ nav tab reopens
+  it. Keep the score explanation in sync with scoring changes in `refresh.py`.
+- **Table density**: `colMode` localStorage ('full' default / 'compact'), chip
+  `#colModeChip`; compact column set in `COMPACT_COLS`.
+- **Stock requests page** POSTs to public ntfy topic `harris-stockdash-req-a2962152`
+  (deliberately separate from the private pipeline topic — it's spam-exposed by
+  design; owner subscribes to it read-only). Client-side throttle: 1/min, 5/day
+  via localStorage. Never repoint it at the pipeline topic.
+- **Deeper history**: `price-history-long.json` on `claude/state` =
+  `{updatedAt, byTicker: {T: {t:[daynums], p:[daily closes, native ccy], st:[daynums],
+  s:[combinedScore]}}}` — 5y daily closes (capped 1830d, seeded by
+  `scripts/backfill_history.py`) + never-pruned daily score series, maintained
+  incrementally by `refresh.py`. The 5Y chart range and its score overlay lazy-fetch
+  this file (`PHL_URL`); 30D/1Y still come from `price-history.json`.
 
 ## Multi-agent coordination
 
-- **Lanes**: (1) UI/template → `template.html`; (2) scoring/pipeline → `scripts/refresh.py`;
-  (3) universe rules → `scripts/weekly_universe.py`; (4) analyst data →
-  `scripts/daily_analyst.py` — all on `claude/state` (direct pushes OK);
-  (5) infra → `.github/workflows/*` on `main` (PR, owner merges). Stay in your lane; state file *schemas* are shared contracts —
+- **Lanes**: (1) UI/template → `template.html` on `claude/state`; (2) scoring/pipeline →
+  `scripts/refresh.py` on `main`; (3) universe rules → `scripts/weekly_universe.py`;
+  (4) analyst data → `scripts/daily_analyst.py`; (5) infra → `.github/workflows/*`.
+  Scripts live on `claude/state`; workflows on `main` (PRs; Claude may self-merge small pipeline changes — see branch map); state + template live on `claude/state`
+  (direct pushes OK). Stay in your lane; state file *schemas* are shared contracts —
   changing one requires updating every reader (all three scripts + this file).
 - **Concurrency**: `claude/state` uses pull-rebase-retry; never force-push it.
   `claude/pages` is force-pushed single commits — never run two publishes at once.
-- Schedule changes = edit the workflow cron on `main` via PR. The permission classifier
+- Schedule changes = edit the workflow cron on `main` via PR (self-merge OK per the standing authorization). The permission classifier
   blocks committing the API key to git except in `template.html` where the owner
   explicitly authorized it — scripts must read `FINNHUB_API_KEY` from the environment.
 - The permission classifier requires **explicit owner authorization in-conversation**
