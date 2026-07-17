@@ -2,7 +2,7 @@ name: Hourly dashboard refresh
 
 on:
   schedule:
-    - cron: "45 12-19 * * 1-5"   # market hours, notification lands ~15 min later
+    - cron: "45 12-19 * * 1-5"   # backup only — cron-job.org is the primary scheduler
   workflow_dispatch: {}
 
 permissions:
@@ -17,12 +17,43 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 14
     steps:
+      # Two schedulers (cron-job.org primary, GitHub cron backup) can both hit a
+      # slot. Skip this run if (a) a sibling run was created within 3 min of it
+      # and is older (elder wins), or (b) this is a GitHub-cron run and any run
+      # already covered the last 40 min (GitHub cron fires up to ~30 min late).
+      # Manual dispatches are untouched unless they collide within 3 minutes.
+      - name: Skip duplicate slot runs
+        id: dedup
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/hourly-refresh.yml/runs?per_page=30" > /tmp/runs.json
+          SKIP=$(python3 -c '
+          import json, os, datetime
+          me = int(os.environ["GITHUB_RUN_ID"]); ev = os.environ["EVENT"]
+          runs = json.load(open("/tmp/runs.json")).get("workflow_runs", [])
+          ts = lambda r: datetime.datetime.fromisoformat(r["created_at"].replace("Z", "+00:00"))
+          now = datetime.datetime.now(datetime.timezone.utc)
+          mine = [r for r in runs if r["id"] == me]
+          my_t = ts(mine[0]) if mine else now
+          alive = lambda r: r["conclusion"] in (None, "success")
+          dup = any(r["id"] < me and alive(r) and abs((ts(r) - my_t).total_seconds()) < 180 for r in runs)
+          late = ev == "schedule" and any(r["id"] != me and alive(r) and (now - ts(r)).total_seconds() < 2400 for r in runs)
+          print("true" if (dup or late) else "false")
+          ')
+          echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
+          echo "event=$EVENT skip=$SKIP"
+
       - uses: actions/checkout@v4
+        if: steps.dedup.outputs.skip != 'true'
         with:
           ref: claude/state
           path: state
 
       - name: Run refresh pipeline (80 tickers)
+        if: steps.dedup.outputs.skip != 'true'
         env:
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
         run: |
@@ -30,6 +61,7 @@ jobs:
 
       - name: Publish page to claude/pages
         id: pages
+        if: steps.dedup.outputs.skip != 'true'
         run: |
           mkdir pub && cp out/index.html pub/ && cp -r state/pwa/. pub/ && cd pub
           git init -q -b claude/pages
@@ -41,6 +73,7 @@ jobs:
 
       - name: Push watchlist state
         id: state
+        if: steps.dedup.outputs.skip != 'true'
         run: |
           cd state
           git config user.email "pipeline@claude.local"
@@ -51,7 +84,7 @@ jobs:
           git push origin claude/state || { git pull --rebase origin claude/state && git push origin claude/state; }
 
       - name: Notify (ntfy)
-        if: always()
+        if: always() && steps.dedup.outputs.skip != 'true'
         run: |
           BODY=$(cat out/notify.txt 2>/dev/null || echo "Dashboard refresh ran but produced no summary — check the Actions log.")
           if [ "${{ steps.pages.outcome }}" != "success" ]; then
