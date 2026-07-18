@@ -1,0 +1,55 @@
+name: Annual benchmark re-anchor
+
+on:
+  schedule:
+    - cron: "0 10 15 7 *"   # July 15, yearly — re-grades every absolute score
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: benchmark-anchor
+  cancel-in-progress: false
+
+jobs:
+  benchmarks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: claude/state
+          path: state
+
+      # Top-500 harvest at Finnhub free-tier pacing takes ~20 min.
+      - name: Build frozen benchmark anchors
+        env:
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+        run: |
+          STATE_DIR=state python3 state/scripts/build_benchmarks.py
+
+      - name: Push to claude/state
+        run: |
+          cd state
+          git config user.email "pipeline@claude.local"
+          git config user.name "Stock Dashboard Pipeline"
+          git add benchmarks.json
+          git diff --cached --quiet && exit 0
+          git commit -q -m "benchmarks: annual re-anchor $(date -u +%Y-%m-%d)"
+          git push origin claude/state || { git pull --rebase origin claude/state && git push origin claude/state; }
+
+      # Re-anchoring shifts every absolute score at once — never let it happen silently.
+      - name: Notify owner (ntfy)
+        run: |
+          curl -sS -H "Title: Dashboard scores re-anchored" -H "Tags: balance_scale" \
+               -H "Click: https://harris120807.github.io/stock-dashboard/" \
+               -d "Annual benchmark rebuild complete — absolute scores re-grade against the new market/sector norms from the next refresh." \
+               https://ntfy.sh/harris-stockdash-3cb22f88
+
+      - name: Notify owner of failure (ntfy)
+        if: failure()
+        run: |
+          curl -sS -H "Title: Benchmark re-anchor FAILED" -H "Tags: warning" \
+               -d "Annual benchmarks workflow failed — absolute scores keep the old anchors. Check the Actions log." \
+               https://ntfy.sh/harris-stockdash-3cb22f88

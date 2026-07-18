@@ -27,8 +27,9 @@ no Claude sessions in the loop:
 | `weekly-universe.yml` | `scripts/weekly_universe.py` | `0 11 * * 1` | `universe.json`; ntfy only on membership change |
 | `daily-analyst.yml` | `scripts/daily_analyst.py` | `0 12 * * 1-5` | `analyst-state.json` |
 | `hourly-refresh.yml` | `scripts/refresh.py` | `45 12-19 * * 1-5` (backup — cron-job.org is primary, see workflow comment) | `claude/pages` (page + `pwa/` copy), `watchlist-state.json`, `last-data.json`, `price-history.json`, `price-history-long.json`, `requests-log.json`, ntfy push |
+| `annual-benchmarks.yml` | `scripts/build_benchmarks.py` | `0 10 15 7 *` (July 15 yearly) | `benchmarks.json` (frozen absolute-score anchors — re-grades EVERY absolute score; always ntfy, success or failure, owner-approved 2026-07-18) |
 
-All three support `workflow_dispatch` for manual runs. Scripts read `FINNHUB_API_KEY`,
+All workflows support `workflow_dispatch` for manual runs. Scripts read `FINNHUB_API_KEY`,
 `STATE_DIR` (checkout of `claude/state`), `OUT_DIR`; they only write files — the
 workflow steps do the git pushes and the ntfy notification (from `OUT_DIR/notify.txt`).
 
