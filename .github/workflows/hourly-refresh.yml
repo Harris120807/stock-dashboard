@@ -15,7 +15,7 @@ concurrency:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 14
+    timeout-minutes: 20
     steps:
       # Two schedulers (cron-job.org primary, GitHub cron backup) can both hit a
       # slot. Skip this run if (a) a sibling run was created within 3 min of it
