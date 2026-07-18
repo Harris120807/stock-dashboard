@@ -28,12 +28,19 @@ jobs:
         run: |
           STATE_DIR=state OUT_DIR=out python3 state/scripts/weekly_universe.py
 
+      # New entrants arrive with no long history (refresh.py only fetches 2y).
+      # Deepen mode backfills 5y ONLY for shallow tickers, preserving score
+      # series — a no-op most weeks.
+      - name: Backfill 5y history for new entrants
+        run: |
+          DEEPEN=1 STATE_DIR=state python3 state/scripts/backfill_history.py
+
       - name: Push universe
         run: |
           cd state
           git config user.email "pipeline@claude.local"
           git config user.name "Stock Dashboard Pipeline"
-          git add universe.json
+          git add universe.json price-history-long.json
           git diff --cached --quiet && exit 0
           git commit -q -m "universe: weekly refresh $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           git push origin claude/state || { git pull --rebase origin claude/state && git push origin claude/state; }
