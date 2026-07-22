@@ -35,11 +35,38 @@ FH_PACE = float(os.environ.get("FINNHUB_PACE", "1.1"))  # stay under Finnhub fre
 universe = json.load(open(f"{STATE}/universe.json"))
 pairs = [(t, t) for t in universe["us"]] + [(e["ticker"], e["adr"]) for e in universe["europe"]]
 
+# ---------- weekday rotation (2026-07-22, for the 300-US universe) ----------
+# The 6-call Finnhub bundle per ticker doesn't fit in one run at ~380 tickers
+# (~42 min at rate-limit pacing), and fundamentals/recommendations move slowly.
+# Each weekday covers a stable fifth of the universe (md5-hash bucket, so
+# membership survives pool reordering); tickers NEW to analyst-state are always
+# fetched same-day; news additionally refreshes daily for the 50 largest names.
+# FULL=1 fetches everything (one-time seeding / manual runs). Yahoo targets and
+# fundamentals carry-forward remain daily for the whole universe.
+import hashlib
+FULL = os.environ.get("FULL", "0") == "1"
+try:
+    prior_by = json.load(open(f"{STATE}/analyst-state.json")).get("byTicker", {})
+except Exception:
+    prior_by = {}
+wd = datetime.date.today().weekday() % 5
+bucket = lambda t: int(hashlib.md5(t.encode()).hexdigest(), 16) % 5
+rotation = {t for t, _ in pairs if FULL or bucket(t) == wd or t not in prior_by}
+news_daily = {t for t, _ in list(pairs)[:50]}  # pairs are mcap-ordered; big names get fresh news daily
+
 today = datetime.date.today()
 # Calendar window: ~1y back (report-date markers on the price chart) through next
 # week (upcoming section). The recent-results section filters to the past week client-side.
 frm, to = (today - datetime.timedelta(days=370)).isoformat(), (today + datetime.timedelta(days=7)).isoformat()
 news_frm = (today - datetime.timedelta(days=7)).isoformat()
+
+def fetch_news_only(sym):
+    ck = f"{OUT}/ck/news-{sym.replace('/', '_')}.json"
+    if os.path.exists(ck): return json.load(open(ck))
+    news = get(f"https://finnhub.io/api/v1/company-news?symbol={sym}&from={news_frm}&to={today.isoformat()}&token={KEY}"); time.sleep(FH_PACE)
+    b = {"news": news}
+    json.dump(b, open(ck, "w"))
+    return b
 
 def fetch(sym):
     ck = f"{OUT}/ck/{sym.replace('/', '_')}.json"
@@ -102,11 +129,14 @@ def build(ticker, sym):
                                "reports": reports}}
 
 for ticker, sym in pairs:
-    by[ticker] = build(ticker, sym)
+    if ticker in rotation:
+        by[ticker] = build(ticker, sym)
+    else:
+        by[ticker] = prior_by[ticker]  # off-rotation: carry yesterday's data forward
 
 # One retry pass for transient Finnhub blips: refetch tickers that came back scoreless.
 for ticker, sym in pairs:
-    if by[ticker]["analystScore"] is None:
+    if ticker in rotation and by[ticker]["analystScore"] is None:
         ck = f"{OUT}/ck/{sym.replace('/', '_')}.json"
         if os.path.exists(ck): os.remove(ck)
         by[ticker] = build(ticker, sym)
@@ -217,13 +247,23 @@ def tone_tag(text):
     if net <= -0.25: return -1
     return 0
 
+try:
+    prior_news = json.load(open(f"{STATE}/news-state.json")).get("byTicker", {})
+except Exception:
+    prior_news = {}
 news_by = {}
 for ticker, sym in pairs:
-    ck = f"{OUT}/ck/{sym.replace('/', '_')}.json"
-    try:
-        items = json.load(open(ck)).get("news") or []
-    except Exception:
-        items = []
+    if ticker not in rotation and ticker in news_daily:
+        items = fetch_news_only(sym).get("news") or []       # big name off-rotation: fresh news anyway
+    elif ticker not in rotation:
+        news_by[ticker] = prior_news.get(ticker) or []       # off-rotation: carry last known news
+        continue
+    else:
+        ck = f"{OUT}/ck/{sym.replace('/', '_')}.json"
+        try:
+            items = json.load(open(ck)).get("news") or []
+        except Exception:
+            items = []
     seen, out = set(), []
     for it in sorted((x for x in items if x and x.get("headline")), key=lambda x: -(x.get("datetime") or 0)):
         h = it["headline"].strip()

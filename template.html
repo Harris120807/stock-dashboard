@@ -1020,18 +1020,20 @@ function fetchPriceHistory(){
   }
   return _phFetch;
 }
-// 5-year daily history + long-run score series, fetched only when 5Y is selected
-const PHL_URL = 'https://raw.githubusercontent.com/Harris120807/stock-dashboard/claude/state/price-history-long.json';
-let _phlData = null, _phlFetch = null;
-function fetchLongHistory(){
-  if (_phlData) return Promise.resolve(_phlData);
-  if (!_phlFetch){
-    _phlFetch = fetch(PHL_URL)
+// 5-year daily history + long-run score series, sharded one file per ticker
+// (state/history/{T}.json, 2026-07-22) and fetched lazily per ticker
+const PHL_BASE = 'https://raw.githubusercontent.com/Harris120807/stock-dashboard/claude/state/history/';
+const _phlShards = {};
+const _phlPending = {};
+function fetchLongHistory(t){
+  if (_phlShards[t]) return Promise.resolve(_phlShards[t]);
+  if (!_phlPending[t]){
+    _phlPending[t] = fetch(PHL_BASE + t.replace(/\//g, '_') + '.json')
       .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(j => (_phlData = j || {}))
-      .catch(e => { _phlFetch = null; throw e; });
+      .then(j => (_phlShards[t] = j || {}))
+      .catch(e => { delete _phlPending[t]; throw e; });
   }
-  return _phlFetch;
+  return _phlPending[t];
 }
 // 30-day sparklines in the table, filled lazily from the same price-history fetch
 function fillSparklines(){
@@ -1069,7 +1071,7 @@ function drawPriceHistory(d){
   });
   const useLong = phRange !== '30d';   // 1Y and 5Y both come from the long-history file
   const fetches = useLong
-    ? Promise.all([fetchPriceHistory(), fetchLongHistory().catch(() => null)])
+    ? Promise.all([fetchPriceHistory(), fetchLongHistory(d.ticker).catch(() => null)])
     : fetchPriceHistory().then(p => [p, null]);
   fetches.then(([ph, phl]) => {
     // the card may have been re-rendered for another stock while we fetched
@@ -1077,7 +1079,7 @@ function drawPriceHistory(d){
     const by = ph.byTicker || {};
     const h = by[d.ticker];
     if (!h || !h.t || h.t.length < 2){ wrap.style.display = 'none'; return; }
-    const LhAll = useLong ? ((phl && phl.byTicker) || {})[d.ticker] : null;
+    const LhAll = useLong ? phl : null;
     const longOk = !!(LhAll && LhAll.t && LhAll.t.length > 60);
     // long data missing (very new listing) degrades to the 30d hourly series
     const fiveY = longOk && phRange === '5y';
@@ -2105,7 +2107,43 @@ function scoreNarrative(d){
     ${net ? `<div class="drivers-net">${net}</div>` : ''}`;
 }
 
+// Detail-only fields (breakdowns, technicals, earnings history, analyst counts)
+// ship in detail-data.json next to index.html (payload split at 383 tickers,
+// 2026-07-22 — contract with refresh.py DETAIL_FIELDS). Fetched once, merged
+// into DATA, then the open card re-renders.
+let _detailFetch = null;
+function fetchDetail(){
+  if (!_detailFetch){
+    _detailFetch = fetch('detail-data.json')
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(j => {
+        const by = j.byTicker || {};
+        DATA.forEach(d => {
+          const det = by[d.ticker];
+          if (det){
+            if (det.scoreBreakdown) d.scoreBreakdown = det.scoreBreakdown;
+            if (det.absBreakdown) d.absBreakdown = det.absBreakdown;
+            if (det.technicals) d.technicals = det.technicals;
+            if (det.dataSource) d.dataSource = det.dataSource;
+            if (det.adr) d.adr = det.adr;
+            d.earnings = Object.assign({}, d.earnings || {}, det.earnings || {});
+          }
+          d._detail = true;
+        });
+        return true;
+      })
+      .catch(e => { _detailFetch = null; return false; });
+  }
+  return _detailFetch;
+}
+
 function renderDetailCard(d){
+  if (!d._detail){
+    fetchDetail().then(ok => {
+      const wrap = document.getElementById('phWrap');
+      if (ok && wrap && wrap.getAttribute('data-ticker') === d.ticker) renderDetailCard(d);
+    });
+  }
   const card = document.getElementById('detailCard');
   const pct = (d.hi52 && d.lo52 && d.hi52 > d.lo52)
     ? Math.max(0, Math.min(100, (d.price - d.lo52) / (d.hi52 - d.lo52) * 100))
@@ -2377,13 +2415,12 @@ function applyHash(){
   }
 
   // one series for one ticker under the current metric/range; null if not derivable
-  let _cmpPhl = null;   // long-history file, fetched only when the 1Y range needs it
   function seriesFor(t, ph){
     const m = metric(), h = (ph.byTicker || {})[t], d = DATA.find(x => x.ticker === t);
     if (!h || !h.t || h.t.length < 2 || !d) return null;
     let T = h.t, P = h.p;
     if (st.range === '1y' && m.kind !== 'score'){
-      const Lh = ((_cmpPhl && _cmpPhl.byTicker) || {})[t];
+      const Lh = _phlShards[t];   // prefetched by draw() before drawTs runs
       if (Lh && Lh.t && Lh.t.length > 30){ T = Lh.t.slice(-252).map(x => x * 86400); P = Lh.p.slice(-252); }
     }
     if (m.kind === 'pct'){ const p0 = P[0]; return p0 ? {T, V: P.map(p => 100 * (p / p0 - 1))} : null; }
@@ -2412,11 +2449,12 @@ function applyHash(){
     if (!m.ts){ drawBars(m); return; }
     if (typeof fetch !== 'function'){ svg.style.display = 'none'; return; }
     svg.innerHTML = '';
-    Promise.all([fetchPriceHistory(),
-                 st.range === '1y' ? fetchLongHistory().catch(() => null) : Promise.resolve(null)])
-    .then(([ph, phl]) => {
+    const needShards = (st.range === '1y' && m.kind !== 'score')
+      ? [...new Set(st.ents.flatMap(en => en.t ? [en.t] : members(en.sector).map(d => d.ticker)))]
+      : [];
+    Promise.all([fetchPriceHistory(), ...needShards.map(t => fetchLongHistory(t).catch(() => null))])
+    .then(([ph]) => {
       if (metric() !== m) return;
-      _cmpPhl = phl;
       drawTs(m, ph);
     }).catch(() => {
       svg.style.display = 'none'; emptyEl.style.display = '';
@@ -2615,7 +2653,8 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
       if (!changed) return;
       renderKpis();
       renderHeatStrip();
-      renderBody();
+      const tv = document.getElementById('view-table');
+      if (tv && tv.offsetParent !== null) renderBody();   // 383-row rerender only when the table is on screen
       const card = document.getElementById('detailCard');
       const wrap = document.getElementById('phWrap');
       if (card && card.classList.contains('open') && wrap){

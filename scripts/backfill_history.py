@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""One-off 5-year daily price backfill for price-history-long.json.
+"""5-year daily price backfill for the sharded long history (state/history/{T}.json).
 
-Seeds the long-run history file consumed/maintained by scripts/refresh.py:
+Seeds/deepens the per-ticker files consumed/maintained by scripts/refresh.py:
   {"updatedAt": iso, "byTicker": {TICKER: {"t": [unix_ts//86400 daynums, ascending],
                                            "p": [daily closes, rounded 3dp],
                                            "st": [], "s": []}}}
@@ -12,7 +12,8 @@ they start empty and accumulate one point per UTC day via refresh.py (never prun
 Fetches Yahoo chart range=5y interval=1d per ticker: US tickers as-is, European
 tickers via the NATIVE listing symbol (same symbol the dashboard charts use).
 Stdlib only. Env: STATE_DIR (checkout of claude/state; reads universe.json,
-writes price-history-long.json).
+writes history/{T}.json shards). MIGRATE=1 splits a legacy
+price-history-long.json into shards (one-time).
 """
 import datetime, json, os, time, urllib.request
 
@@ -62,6 +63,27 @@ def fetch_daily(ticker):
         t.pop(0); p.pop(0)
     return t, p
 
+def shard_path(t):
+    return f"{STATE}/history/{t.replace('/', '_')}.json"
+
+def shard_read(t):
+    try:
+        return json.load(open(shard_path(t)))
+    except Exception:
+        return {"t": [], "p": [], "st": [], "s": []}
+
+def shard_write(t, e):
+    os.makedirs(f"{STATE}/history", exist_ok=True)
+    json.dump(e, open(shard_path(t), "w"), separators=(",", ":"))
+
+def migrate():
+    """One-time: split a legacy price-history-long.json into per-ticker shards."""
+    data = json.load(open(f"{STATE}/price-history-long.json"))
+    for t, e in data.get("byTicker", {}).items():
+        shard_write(t, e)
+    os.remove(f"{STATE}/price-history-long.json")
+    print(f"migrated {len(data.get('byTicker', {}))} tickers to history/ shards")
+
 def deepen():
     """Merge mode (DEEPEN=1): fetch 5y history ONLY for tickers whose stored
     series is missing or shallow (< SHALLOW_DAYS points — e.g. new universe
@@ -72,13 +94,8 @@ def deepen():
     SHALLOW_DAYS = 1000
     universe = json.load(open(f"{STATE}/universe.json"))
     tickers = list(universe["us"]) + [e["ticker"] for e in universe["europe"]]
-    try:
-        data = json.load(open(f"{STATE}/price-history-long.json"))
-    except Exception:
-        data = {"byTicker": {}}
-    by = data.get("byTicker", {})
-    targets = [t for t in tickers if len((by.get(t) or {}).get("t") or []) < SHALLOW_DAYS]
-    changed = False
+    targets = [t for t in tickers if len(shard_read(t).get("t") or []) < SHALLOW_DAYS]
+    wrote = 0
     for tkr in targets:
         tp = fetch_daily(tkr)
         time.sleep(0.5)
@@ -86,27 +103,22 @@ def deepen():
             print(f"WARNING: deepen failed for {tkr} — kept as-is")
             continue
         t, p = tp
-        old = by.get(tkr) or {"t": [], "p": [], "st": [], "s": []}
+        old = shard_read(tkr)
         for dn, cc in zip(old["t"], old["p"]):  # keep closes newer than the fetch
             if dn > t[-1]:
                 t.append(dn); p.append(cc)
         if len(t) <= len(old["t"]):
             print(f"{tkr}: fetch no deeper than stored ({len(old['t'])} points) — kept")
             continue
-        by[tkr] = {"t": t, "p": p, "st": old.get("st") or [], "s": old.get("s") or []}
-        changed = True
+        shard_write(tkr, {"t": t, "p": p, "st": old.get("st") or [], "s": old.get("s") or []})
+        wrote += 1
         print(f"{tkr}: deepened {len(old['t'])} -> {len(t)} points")
-    if changed:
-        out = {"updatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-               "byTicker": by}
-        json.dump(out, open(f"{STATE}/price-history-long.json", "w"), separators=(",", ":"))
-    print(f"deepen: {len(targets)} shallow of {len(tickers)}; wrote={changed}")
+    print(f"deepen: {len(targets)} shallow of {len(tickers)}; wrote={wrote}")
 
 def main():
     universe = json.load(open(f"{STATE}/universe.json"))
     tickers = list(universe["us"]) + [e["ticker"] for e in universe["europe"]]
-    by = {}
-    failed = []
+    wrote, failed = 0, []
     for tkr in tickers:
         tp = fetch_daily(tkr)
         time.sleep(0.5)
@@ -119,13 +131,12 @@ def main():
             failed.append(tkr)
             continue
         t, p = tp
-        by[tkr] = {"t": t, "p": p, "st": [], "s": []}
+        prior = shard_read(tkr)
+        shard_write(tkr, {"t": t, "p": p, "st": prior.get("st") or [], "s": prior.get("s") or []})
+        wrote += 1
         print(f"{tkr}: {len(t)} points, last close {p[-1]}")
-    out = {"updatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-           "byTicker": by}
-    json.dump(out, open(f"{STATE}/price-history-long.json", "w"), separators=(",", ":"))
-    print(f"Wrote {len(by)}/{len(tickers)} tickers"
+    print(f"Wrote {wrote}/{len(tickers)} tickers"
           + (f"; failed: {', '.join(failed)}" if failed else ""))
 
 if __name__ == "__main__":
-    deepen() if os.environ.get("DEEPEN") == "1" else main()
+    migrate() if os.environ.get("MIGRATE") == "1" else deepen() if os.environ.get("DEEPEN") == "1" else main()

@@ -55,10 +55,13 @@ except Exception:
 # per run. Yahoo retroactively rewrites history on splits/dividends, so Mondays
 # do a full 2y refetch, and any run where the 5d overlap disagrees >3% with the
 # stored closes on 2+ days triggers a per-ticker full resync.
-try:
-    LH_PRIOR = json.load(open(f"{STATE}/price-history-long.json")).get("byTicker", {})
-except Exception:
-    LH_PRIOR = {}
+# Long history is sharded one file per ticker (state/history/{T}.json,
+# 2026-07-22 — a single 383-ticker file would be ~6MB per chart fetch).
+def lh_read(t):
+    try:
+        return json.load(open(f"{STATE}/history/{t.replace('/', '_')}.json"))
+    except Exception:
+        return {"t": [], "p": [], "st": [], "s": []}
 FULL_CHART = datetime.datetime.now(datetime.timezone.utc).weekday() == 0
 try:
     prior_watch = json.load(open(f"{STATE}/watchlist-state.json"))
@@ -78,6 +81,9 @@ def fx(ccy):
         except Exception: fxc[ccy] = None
     return fxc[ccy]
 
+FB_CAP = int(os.environ.get("FALLBACK_CAP", "25"))
+FB_STATE = {"n": 0}
+
 def fetch(ticker, sym):
     ckf = f"{OUT}/ck/{ticker.replace('/','_')}.json"
     if os.path.exists(ckf): return json.load(open(ckf))
@@ -88,7 +94,11 @@ def fetch(ticker, sym):
     b["metric"] = f.get("metric") or {}
     b["refPrice"] = f.get("refPrice")
     b["quote"] = None
-    if not b["profile"] or not b["metric"]:
+    if (not b["profile"] or not b["metric"]) and FB_STATE["n"] < FB_CAP:
+        # live-Finnhub fallback, capped per run: a mass universe expansion would
+        # otherwise burn the whole shared rate budget in one refresh — beyond the
+        # cap, records render partial until the daily prefetch covers them
+        FB_STATE["n"] += 1
         b["profile"] = get(f"https://finnhub.io/api/v1/stock/profile2?symbol={sym}&token={KEY}") or {}; time.sleep(FH_PACE)
         b["metric"] = (get(f"https://finnhub.io/api/v1/stock/metric?symbol={sym}&metric=all&token={KEY}") or {}).get("metric", {}); time.sleep(FH_PACE)
         b["refPrice"] = None
@@ -109,7 +119,7 @@ def fetch(ticker, sym):
         except Exception:
             pass
         return closes, close_ts, meta
-    stored = LH_PRIOR.get(ticker) or {}
+    stored = lh_read(ticker)
     st_dn, st_p = list(stored.get("t") or []), list(stored.get("p") or [])
     if FULL_CHART or len(st_dn) < 260:
         closes, close_ts, meta = chart_get("2y")
@@ -467,7 +477,15 @@ for i, d in enumerate(records):
     d["rankDelta"] = (prior_rank[d["ticker"]] - (i + 1)) if d["ticker"] in prior_rank else None
 
 # ---------- watchlist ----------
-scored = [d["ticker"] for d in records if d["combinedScore"] is not None]
+# Watchlist eligibility: at ~380 names the top/bottom extremes are where data
+# glitches live — require at least 2 scored valuation metrics AND 2 scored
+# indicator components before a stock can make the buy/sell list.
+def watch_eligible(d):
+    b = d.get("scoreBreakdown") or {}
+    tb = (d.get("technicals") or {}).get("scoreBreakdown") or {}
+    return (sum(1 for v in b.values() if v is not None) >= 2
+            and sum(1 for v in tb.values() if v is not None) >= 2)
+scored = [d["ticker"] for d in records if d["combinedScore"] is not None and watch_eligible(d)]
 buy, sell = scored[:3], scored[-3:][::-1]
 pb_, ps_ = set(prior_watch.get("buy") or []), set(prior_watch.get("sell") or [])
 entered = [t for t in buy if t not in pb_] + [t for t in sell if t not in ps_]
@@ -540,28 +558,43 @@ def update_long_history(e, ts, cl, score, today_dn, cap=1830):
         e["st"].append(today_dn); e["s"].append(score); changed = True
     return changed
 
-try:
-    lh_all = json.load(open(f"{STATE}/price-history-long.json")).get("byTicker", {})
-except Exception:
-    lh_all = {}
-lh = {t: v for t, v in lh_all.items() if t in current}
-lh_dirty = len(lh) != len(lh_all)
+os.makedirs(f"{STATE}/history", exist_ok=True)
 today_dn = now_s // 86400
+lh_written = 0
 for d in records:
-    e = lh.setdefault(d["ticker"], {"t": [], "p": [], "st": [], "s": []})
+    e = lh_read(d["ticker"])
     cl, ts = CLOSES.get(d["ticker"], ([], []))
+    dirty = False
     if d["ticker"] in RESYNC:
         # split guard refetched the full adjusted history — replace the stored
         # price series (the score series st/s is untouched)
         e["t"], e["p"] = [], []
         cl, ts = RESYNC[d["ticker"]]
-        lh_dirty = True
-    lh_dirty |= update_long_history(e, ts, cl, d["combinedScore"], today_dn)
-if lh_dirty:
-    json.dump({"updatedAt": now.isoformat(), "byTicker": lh}, open(f"{STATE}/price-history-long.json", "w"), separators=(",", ":"))
+        dirty = True
+    dirty |= update_long_history(e, ts, cl, d["combinedScore"], today_dn)
+    if dirty:
+        json.dump(e, open(f"{STATE}/history/{d['ticker'].replace('/', '_')}.json", "w"), separators=(",", ":"))
+        lh_written += 1
 
 # ---------- build html ----------
-data_json = json.dumps(records, separators=(",", ":"), ensure_ascii=False)
+# Page payload split (2026-07-22): the page embeds slim records (table/overview
+# fields); detail-only structures ship in detail-data.json next to index.html,
+# lazily fetched on first stock-card open. Contract with template.html
+# fetchDetail()/mergeDetail — the field list must match what the card renders.
+DETAIL_FIELDS = ("scoreBreakdown", "absBreakdown", "technicals", "dataSource", "adr")
+detail_by = {}
+slim_records = []
+for d in records:
+    det = {k: d[k] for k in DETAIL_FIELDS if k in d}
+    e_full = d.get("earnings") or {}
+    det["earnings"] = {k: e_full.get(k) for k in ("recent", "reports")}
+    sd = {k: v for k, v in d.items() if k not in DETAIL_FIELDS}
+    sd["earnings"] = {k: v for k, v in e_full.items() if k not in ("recent", "reports")}
+    detail_by[d["ticker"]] = det
+    slim_records.append(sd)
+json.dump({"updatedAt": now.isoformat(), "byTicker": detail_by},
+          open(f"{OUT}/detail-data.json", "w"), separators=(",", ":"), ensure_ascii=False)
+data_json = json.dumps(slim_records, separators=(",", ":"), ensure_ascii=False)
 pool_sectors = {d.get("sector") for d in records}
 bench_slim = json.dumps({"market": BENCH["market"],
                          "bySector": {s: v for s, v in (BENCH.get("bySector") or {}).items() if s in pool_sectors}},
@@ -585,7 +618,7 @@ wrapped = ('<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n'
            + final[:i] + "\n</head>\n<body>\n" + final[i:] + "\n</body>\n</html>\n")
 open(f"{OUT}/index.html", "w").write(wrapped)
 
-print(f"OK live={live}/{len(records)} changed={changed} buy={buy} sell={sell}")
+print(f"OK live={live}/{len(records)} changed={changed} buy={buy} sell={sell} historyShardsWritten={lh_written} finnhubFallbacks={FB_STATE['n']}")
 body = f"Refreshed — {live}/{len(records)} tickers live."
 if changed:
     body += f" Buy watch: {', '.join(buy)}. Sell watch: {', '.join(sell)}."

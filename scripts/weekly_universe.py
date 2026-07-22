@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Weekly universe refresh for the stock dashboard.
 
-Screens Yahoo Finance for the top 500 US-tradeable stocks by market cap, derives:
-  - US 50:    top 50 US-domiciled companies
+Screens Yahoo Finance for the top 750 US-tradeable stocks by market cap, derives:
+  - US 300:   top 300 US-domiciled companies (raised from 50 on 2026-07-22, owner request)
   - Europe 30: top 30 UK/European-domiciled companies, displayed on their native
                home-exchange listing with their US ADR symbol kept for Finnhub
 and writes universe.json into STATE_DIR. Prints CHANGED/UNCHANGED and writes a
@@ -41,7 +41,7 @@ def get_json(url, headers=None, retries=4):
 
 FH_PACE = float(os.environ.get("FINNHUB_PACE", "1.1"))  # stay under Finnhub free-tier 60 calls/min
 
-# ---------- Yahoo screener (cookie + crumb, 2 pages) ----------
+# ---------- Yahoo screener (cookie + crumb, 3 pages) ----------
 def screen500():
     cj = http.cookiejar.CookieJar()
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
@@ -50,7 +50,7 @@ def screen500():
     except Exception: pass  # 404 expected; cookie is what matters
     crumb = opener.open("https://query1.finance.yahoo.com/v1/test/getcrumb", timeout=15).read().decode().strip()
     rows = []
-    for offset in (0, 250):
+    for offset in (0, 250, 500):
         body = json.dumps({"size": 250, "offset": offset, "sortField": "intradaymarketcap", "sortType": "DESC",
                            "quoteType": "EQUITY", "query": {"operator": "AND", "operands": [{"operator": "EQ", "operands": ["region", "us"]}]}}).encode()
         req = urllib.request.Request(
@@ -109,7 +109,7 @@ def main():
 
     us = [q for q in clean if not (is_otc(q) or name_foreign(q) or q["symbol"] in KNOWN_FOREIGN)]
     foreign = [q for q in clean if is_otc(q) or name_foreign(q) or q["symbol"] in KNOWN_FOREIGN]
-    us50 = us[:50]
+    us_core = us[:300]   # top-300 US cutoff (owner request 2026-07-22)
 
     # Europe: country lookup, trusted mcap, rank, resolve native, validate
     cands = []
@@ -152,7 +152,7 @@ def main():
     # tracked name — stocks are never removed when they fall below the cutoff.
     # coreUs/coreEurope record who currently makes the cut (informational; feeds
     # the Monday notification and, later, tiered refresh cadence).
-    core_us = [q["symbol"] for q in us50]
+    core_us = [q["symbol"] for q in us_core]
     core_eu_pairs = {e["ticker"]: e["adr"] for e in eu30}
     prior_us = list(prior.get("us") or [])
     prior_eu_pairs = {e["ticker"]: e["adr"] for e in (prior.get("europe") or [])}
@@ -162,7 +162,7 @@ def main():
         if t not in pool_eu and t not in pool_us:
             pool_eu[t] = adr
 
-    us_mcap = {q["symbol"]: q["mcap"] or 0 for q in us50}
+    us_mcap = {q["symbol"]: q["mcap"] or 0 for q in us_core}
     eu_mcap = {e["ticker"]: e["mcap"] for e in eu30}
     tickers = sorted(pool_us + list(pool_eu),
                      key=lambda t: -(us_mcap.get(t) or eu_mcap.get(t) or 0))
@@ -181,7 +181,7 @@ def main():
     if changed:
         bits = []
         if added: bits.append(f"added new entrant{'s' if len(added) > 1 else ''}: {', '.join(added)}")
-        if fell_out: bits.append(f"fell below the top-50/30 cutoff (retained in the pool): {', '.join(fell_out)}")
+        if fell_out: bits.append(f"fell below the top-300/30 cutoff (retained in the pool): {', '.join(fell_out)}")
         open(f"{OUT}/notify.txt", "w").write(
             f"Universe updated — {'; '.join(bits)}. Pool size now {len(tickers)}. "
             f"Takes effect on the next daily/hourly refresh.")
