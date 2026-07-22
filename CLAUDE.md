@@ -210,6 +210,7 @@ them, then republish via `refresh.py`.
 
 ## Cloudflare (client API proxy)
 
+- **Custom domain (2026-07-22)**: the Worker is mounted at `api.valuetally.com` (Workers custom domain on the owner's valuetally.com zone, id c0e0bf4b6284c2f2f072b792da1a898a); the page's `API_PROXY` points there. The workers.dev URL keeps working as a fallback.
 - Account ID `e3f3a97cb1349addb9ec089f9383d12d` (not secret). Worker `stockdash-proxy`,
   source versioned at `worker/` on `claude/state`; workers.dev subdomain
   `harris-stockdash`. Deploys via Cloudflare REST API or wrangler using the API token

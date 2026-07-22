@@ -1887,7 +1887,7 @@ function renderEarningsSection(d){
 // key lives server-side and responses are edge-cached per symbol, so upstream
 // rate limits no longer scale with visitor count. (Replaced the embedded
 // Finnhub key, 2026-07-18.)
-const API_PROXY = 'https://stockdash-proxy.harris-stockdash.workers.dev';
+const API_PROXY = 'https://api.valuetally.com';
 // Sector-aware value scoring (mirror of refresh.py — change both together)
 const FIN_SECTORS = ['Banking', 'Financial Services', 'Insurance'];
 const VAL_BENCH_KEY = {pe:'pe', peg:'peg', evEbitda:'ev', roe:'roe'};
