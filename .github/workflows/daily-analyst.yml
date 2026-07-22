@@ -15,7 +15,7 @@ concurrency:
 jobs:
   prefetch:
     runs-on: ubuntu-latest
-    timeout-minutes: 16
+    timeout-minutes: 22   # ~11 min normal: 6 Finnhub calls/ticker at 1.1s pacing (fundamentals prefetch added 2026-07-22)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,7 +33,7 @@ jobs:
           cd state
           git config user.email "pipeline@claude.local"
           git config user.name "Stock Dashboard Pipeline"
-          git add analyst-state.json news-state.json
+          git add analyst-state.json news-state.json fundamentals-state.json
           git diff --cached --quiet && exit 0
           git commit -q -m "analyst-state: daily prefetch $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           git push origin claude/state || { git pull --rebase origin claude/state && git push origin claude/state; }
