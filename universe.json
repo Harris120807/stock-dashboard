@@ -1,0 +1,358 @@
+{
+ "updatedAt": "2026-07-21T10:39:26.843150+00:00",
+ "tickers": [
+  "NVDA",
+  "AAPL",
+  "GOOG",
+  "MSFT",
+  "AMZN",
+  "AVGO",
+  "META",
+  "SPCX",
+  "TSLA",
+  "SKHY",
+  "BRK-B",
+  "LLY",
+  "MU",
+  "JPM",
+  "WMT",
+  "AMD",
+  "V",
+  "ASML.AS",
+  "XOM",
+  "JNJ",
+  "INTC",
+  "MA",
+  "ABBV",
+  "CSCO",
+  "BAC",
+  "AMAT",
+  "COST",
+  "CAT",
+  "LRCX",
+  "UNH",
+  "CVX",
+  "GE",
+  "KO",
+  "ORCL",
+  "PG",
+  "HD",
+  "MS",
+  "RO.SW",
+  "PLTR",
+  "GS",
+  "MRK",
+  "PM",
+  "GEV",
+  "ARM",
+  "PANW",
+  "NFLX",
+  "MC.PA",
+  "NESN.SW",
+  "KLAC",
+  "WFC",
+  "RTX",
+  "TXN",
+  "HSBA.L",
+  "DELL",
+  "AXP",
+  "OR.PA",
+  "SIE.DE",
+  "NOVN.SW",
+  "NOVO-B.CO",
+  "C",
+  "RMS.PA",
+  "SAN.MC",
+  "AZN.L",
+  "ITX.MC",
+  "SAP.DE",
+  "ALV.DE",
+  "SHEL.L",
+  "AIR.PA",
+  "SU.PA",
+  "IBE.MC",
+  "TTE.PA",
+  "SAF.PA",
+  "RR.L",
+  "DTE.DE",
+  "ENR.DE",
+  "ABBN.SW",
+  "ABI.BR",
+  "BBVA.MC",
+  "UCG.MI",
+  "BATS.L",
+  "SNDK",
+  "CFR.SW",
+  "UBSG.SW"
+ ],
+ "us": [
+  "NVDA",
+  "AAPL",
+  "GOOG",
+  "MSFT",
+  "AMZN",
+  "AVGO",
+  "META",
+  "SPCX",
+  "TSLA",
+  "SKHY",
+  "BRK-B",
+  "LLY",
+  "MU",
+  "JPM",
+  "WMT",
+  "AMD",
+  "V",
+  "XOM",
+  "JNJ",
+  "INTC",
+  "MA",
+  "ABBV",
+  "CSCO",
+  "BAC",
+  "AMAT",
+  "COST",
+  "CAT",
+  "LRCX",
+  "UNH",
+  "CVX",
+  "GE",
+  "KO",
+  "ORCL",
+  "PG",
+  "HD",
+  "MS",
+  "PLTR",
+  "GS",
+  "MRK",
+  "PM",
+  "GEV",
+  "PANW",
+  "NFLX",
+  "KLAC",
+  "WFC",
+  "RTX",
+  "TXN",
+  "DELL",
+  "AXP",
+  "C",
+  "SNDK"
+ ],
+ "europe": [
+  {
+   "ticker": "ASML.AS",
+   "adr": "ASML"
+  },
+  {
+   "ticker": "RO.SW",
+   "adr": "RHHBY"
+  },
+  {
+   "ticker": "ARM",
+   "adr": "ARM"
+  },
+  {
+   "ticker": "MC.PA",
+   "adr": "LVMUY"
+  },
+  {
+   "ticker": "NESN.SW",
+   "adr": "NSRGY"
+  },
+  {
+   "ticker": "HSBA.L",
+   "adr": "HSBC"
+  },
+  {
+   "ticker": "OR.PA",
+   "adr": "LRLCY"
+  },
+  {
+   "ticker": "SIE.DE",
+   "adr": "SMAWF"
+  },
+  {
+   "ticker": "NOVN.SW",
+   "adr": "NVS"
+  },
+  {
+   "ticker": "NOVO-B.CO",
+   "adr": "NVO"
+  },
+  {
+   "ticker": "RMS.PA",
+   "adr": "HESAY"
+  },
+  {
+   "ticker": "SAN.MC",
+   "adr": "SAN"
+  },
+  {
+   "ticker": "AZN.L",
+   "adr": "AZN"
+  },
+  {
+   "ticker": "ITX.MC",
+   "adr": "IDEXY"
+  },
+  {
+   "ticker": "SAP.DE",
+   "adr": "SAP"
+  },
+  {
+   "ticker": "ALV.DE",
+   "adr": "ALIZY"
+  },
+  {
+   "ticker": "SHEL.L",
+   "adr": "SHEL"
+  },
+  {
+   "ticker": "AIR.PA",
+   "adr": "EADSY"
+  },
+  {
+   "ticker": "SU.PA",
+   "adr": "SBGSY"
+  },
+  {
+   "ticker": "IBE.MC",
+   "adr": "IBDRY"
+  },
+  {
+   "ticker": "TTE.PA",
+   "adr": "TTE"
+  },
+  {
+   "ticker": "SAF.PA",
+   "adr": "SAFRY"
+  },
+  {
+   "ticker": "RR.L",
+   "adr": "RYCEY"
+  },
+  {
+   "ticker": "DTE.DE",
+   "adr": "DTEGY"
+  },
+  {
+   "ticker": "ENR.DE",
+   "adr": "SMERY"
+  },
+  {
+   "ticker": "ABBN.SW",
+   "adr": "ABBNY"
+  },
+  {
+   "ticker": "ABI.BR",
+   "adr": "BUD"
+  },
+  {
+   "ticker": "BBVA.MC",
+   "adr": "BBVA"
+  },
+  {
+   "ticker": "UCG.MI",
+   "adr": "UNCRY"
+  },
+  {
+   "ticker": "BATS.L",
+   "adr": "BTI"
+  },
+  {
+   "ticker": "CFR.SW",
+   "adr": "CFRUY"
+  },
+  {
+   "ticker": "UBSG.SW",
+   "adr": "UBS"
+  }
+ ],
+ "coreUs": [
+  "NVDA",
+  "AAPL",
+  "GOOG",
+  "MSFT",
+  "AMZN",
+  "AVGO",
+  "META",
+  "SPCX",
+  "TSLA",
+  "SKHY",
+  "BRK-B",
+  "LLY",
+  "MU",
+  "JPM",
+  "WMT",
+  "AMD",
+  "V",
+  "XOM",
+  "JNJ",
+  "INTC",
+  "MA",
+  "ABBV",
+  "CSCO",
+  "BAC",
+  "AMAT",
+  "COST",
+  "CAT",
+  "LRCX",
+  "UNH",
+  "CVX",
+  "GE",
+  "KO",
+  "ORCL",
+  "PG",
+  "HD",
+  "MS",
+  "PLTR",
+  "GS",
+  "MRK",
+  "PM",
+  "GEV",
+  "PANW",
+  "NFLX",
+  "KLAC",
+  "WFC",
+  "RTX",
+  "TXN",
+  "DELL",
+  "AXP",
+  "C"
+ ],
+ "coreEurope": [
+  "ABBN.SW",
+  "ABI.BR",
+  "AIR.PA",
+  "ALV.DE",
+  "ARM",
+  "ASML.AS",
+  "AZN.L",
+  "BATS.L",
+  "BBVA.MC",
+  "DTE.DE",
+  "ENR.DE",
+  "HSBA.L",
+  "IBE.MC",
+  "ITX.MC",
+  "MC.PA",
+  "NESN.SW",
+  "NOVN.SW",
+  "NOVO-B.CO",
+  "OR.PA",
+  "RMS.PA",
+  "RO.SW",
+  "RR.L",
+  "SAF.PA",
+  "SAN.MC",
+  "SAP.DE",
+  "SHEL.L",
+  "SIE.DE",
+  "SU.PA",
+  "TTE.PA",
+  "UCG.MI"
+ ],
+ "added": [],
+ "dropped": [],
+ "fellOut": []
+}
