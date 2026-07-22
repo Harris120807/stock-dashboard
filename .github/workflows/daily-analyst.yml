@@ -3,7 +3,12 @@ name: Daily analyst prefetch
 on:
   schedule:
     - cron: "0 12 * * 1-5"   # pre-market
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      full:
+        description: "Fetch the FULL universe instead of today's rotation bucket (seeding; ~45 min)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -15,7 +20,7 @@ concurrency:
 jobs:
   prefetch:
     runs-on: ubuntu-latest
-    timeout-minutes: 22   # ~11 min normal: 6 Finnhub calls/ticker at 1.1s pacing (fundamentals prefetch added 2026-07-22)
+    timeout-minutes: 60   # rotation ~13 min at 380 tickers; FULL seeding ~45 min (weekday rotation added 2026-07-22)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,6 +30,7 @@ jobs:
       - name: Fetch analyst + earnings data (80 tickers)
         env:
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          FULL: ${{ inputs.full && '1' || '0' }}
         run: |
           STATE_DIR=state OUT_DIR=out python3 state/scripts/daily_analyst.py
 

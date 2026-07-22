@@ -67,7 +67,7 @@ jobs:
         id: pages
         if: steps.dedup.outputs.skip != 'true'
         run: |
-          mkdir pub && cp out/index.html pub/ && cp -r state/pwa/. pub/
+          mkdir pub && cp out/index.html out/detail-data.json pub/ && cp -r state/pwa/. pub/
           echo "valuetally.com" > pub/CNAME   # custom domain — GitHub Pages reads this from the branch root
           cd pub
           git init -q -b claude/pages
@@ -84,7 +84,7 @@ jobs:
           cd state
           git config user.email "pipeline@claude.local"
           git config user.name "Stock Dashboard Pipeline"
-          git add watchlist-state.json last-data.json price-history.json price-history-long.json requests-log.json
+          git add watchlist-state.json last-data.json price-history.json history requests-log.json
           git diff --cached --quiet && exit 0
           git commit -q -m "watchlist: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           git push origin claude/state || { git pull --rebase origin claude/state && git push origin claude/state; }
