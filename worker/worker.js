@@ -105,6 +105,41 @@ async function handleApi(path, ctx) {
 const GH_REPO = 'Harris120807/stock-dashboard';
 const GH_WF = 'hourly-refresh.yml';
 
+// Live prices: ONE batched Yahoo spark call for the whole universe (native
+// symbols, so EU rows work — no CORS problem server-side), edge-cached 30s.
+// Upstream cost is ~2 calls/min globally regardless of visitor count.
+const YA_UA = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' };
+
+async function handlePrices(ctx) {
+  const cache = caches.default;
+  const key = new Request('https://cache.internal/live-prices');
+  const hit = await cache.match(key);
+  if (hit) return new Response(hit.body, hit);
+  const records = await stateJson('last-data.json', ctx);
+  const syms = records.map(d => d.ticker);
+  // spark rejects >20 symbols per request (400) — chunk and fetch in parallel
+  const chunks = [];
+  for (let i = 0; i < syms.length; i += 20) chunks.push(syms.slice(i, i + 20));
+  const results = await Promise.all(chunks.map(ch =>
+    fetch('https://query1.finance.yahoo.com/v8/finance/spark?symbols=' +
+          ch.map(encodeURIComponent).join(',') + '&range=1d&interval=15m', { headers: YA_UA })
+      .then(r => r.ok ? r.json() : null).catch(() => null)));
+  const by = {};
+  for (const q of results) {
+    for (const [sym, v] of Object.entries(q || {})) {
+      if (!v || !Array.isArray(v.close)) continue;
+      const closes = v.close.filter(x => x !== null && x !== undefined);
+      const p = closes.length ? closes[closes.length - 1] : null;
+      const prev = v.chartPreviousClose ?? v.previousClose ?? null;
+      by[sym] = { p, c: (p && prev) ? Math.round((p / prev - 1) * 10000) / 100 : null };
+    }
+  }
+  if (!Object.keys(by).length) return json({ error: 'quote source unavailable' }, 502, 10);
+  const res = json({ updatedAt: new Date().toISOString(), byTicker: by }, 200, 30);
+  ctx.waitUntil(cache.put(key, res.clone()));
+  return res;
+}
+
 async function handleRefresh(env, ctx) {
   if (!env.GH_TOKEN) return json({ error: 'refresh trigger not configured' }, 503, 30);
   const gh = {
@@ -127,6 +162,10 @@ export default {
     if (route === 'refresh' && req.method === 'POST') {
       try { return await handleRefresh(env, ctx); }
       catch (e) { return json({ error: 'temporarily unavailable' }, 503, 0); }
+    }
+    if (route === 'prices' && req.method === 'GET') {
+      try { return await handlePrices(ctx); }
+      catch (e) { return json({ error: 'temporarily unavailable' }, 503, 10); }
     }
     if (req.method === 'GET' && (route === 'api' || route.startsWith('api/'))) {
       try { return await handleApi(route, ctx); }

@@ -103,6 +103,11 @@
   .asof-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .asof-row .refresh-btn { margin: 0; }
   .asof-row #fullRefreshNote { margin-top: 0; }
+  .live-dot { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-muted); }
+  .live-dot::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--good); animation: livepulse 2.2s infinite; }
+  @keyframes livepulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+  .live-flash { animation: liveflash .8s; }
+  @keyframes liveflash { 0% { color: var(--accent); } 100% { } }
   .rf-bar { display: inline-block; width: 90px; height: 6px; border-radius: 3px; background: var(--border); vertical-align: middle; overflow: hidden; }
   .rf-fill { display: block; height: 100%; width: 0; border-radius: 3px; background: var(--accent); transition: width 1s linear; }
 
@@ -652,7 +657,7 @@
         <div class="mkt-pill" id="mktPill" title="Regular trading hours by region (holidays not modeled)"></div>
       </div>
       <p>The largest US &amp; European stocks, scored on valuation, price trend and analyst sentiment.</p>
-      <div class="meta asof-row"><span id="asof"></span><button class="refresh-btn" id="fullRefreshBtn" title="Re-run the data pipeline for all stocks">&#8635; Full refresh</button><span class="meta" id="fullRefreshNote"></span></div>
+      <div class="meta asof-row"><span id="asof"></span><span class="live-dot" id="liveDot" style="display:none">live prices</span><button class="refresh-btn" id="fullRefreshBtn" title="Re-run the data pipeline for all stocks">&#8635; Full refresh</button><span class="meta" id="fullRefreshNote"></span></div>
       <div class="meta" id="sourceNote"></div>
     </header>
 
@@ -930,7 +935,7 @@ function fmtNum(n, d=1){
 })();
 
 // ---------- KPI tiles ----------
-(function kpis(){
+function renderKpis(){
   const under = DATA.filter(d=>d.position==='Undervalued').length;
   const over = DATA.filter(d=>d.position==='Overvalued').length;
   const moved = DATA.filter(d => typeof d.dayChange === 'number');
@@ -957,7 +962,8 @@ function fmtNum(n, d=1){
     el.addEventListener('click', go);
     el.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); go(); } });
   });
-})();
+}
+renderKpis();
 
 // ---------- Tooltip ----------
 const tooltip = document.getElementById('tooltip');
@@ -2121,7 +2127,7 @@ function renderDetailCard(d){
     </div>
     <div class="detail-price-row">
       <div class="detail-price">${fmtMoney(d, d.price)}</div>
-      ${d.dayChange!==null&&d.dayChange!==undefined ? `<div class="detail-target"><span class="${d.dayChange>=0?'pos':'neg'}"><b>${fmtPct(d.dayChange)}</b> today</span></div>` : ''}
+      ${d.dayChange!==null&&d.dayChange!==undefined ? `<div class="detail-target"><span id="dcToday" class="${d.dayChange>=0?'pos':'neg'}"><b>${fmtPct(d.dayChange)}</b> today</span></div>` : ''}
       <div class="detail-target">Market cap <b>${fmtB(d.marketCap)}</b></div>
       <button class="refresh-btn" id="refreshBtn" onclick="refreshStock('${d.ticker.replace(/'/g,"\\'")}')" title="Fetch live quote and fundamentals for this stock only">&#8635; Refresh data</button>
       <span class="refresh-note" id="refreshNote">${d.refreshedAt ? 'updated ' + d.refreshedAt : ''}</span>
@@ -2576,6 +2582,63 @@ function applyHash(){
 if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
+
+// ---------- live prices ----------
+// Polls the Worker's /prices (ONE batched Yahoo call for all symbols, edge-
+// cached 30s) every 45s while the tab is visible, and patches price/dayChange
+// into DATA + the visible surfaces in place. Scores/technicals stay on the
+// hourly pipeline — only prices go live.
+(function livePrices(){
+  if (typeof fetch !== 'function') return;
+  let lastStamp = null;
+  async function tick(){
+    if (document.hidden) return;
+    try {
+      const r = await fetch(API_PROXY + '/prices');
+      if (!r.ok) return;
+      const j = await r.json();
+      if (!j || !j.byTicker || j.updatedAt === lastStamp) return;
+      lastStamp = j.updatedAt;
+      let changed = 0;
+      for (const d of DATA){
+        const v = j.byTicker[d.ticker];
+        if (!v || v.p === null || v.p === undefined || !(v.p > 0)) continue;
+        // marketCap = price × shares: track the live price (guard vs unit flips)
+        if (d.price && d.marketCap && Math.abs(v.p / d.price - 1) < 0.5 && v.p !== d.price){
+          d.marketCap = Math.round(d.marketCap * v.p / d.price * 10) / 10;
+        }
+        if (v.p !== d.price){ d.price = v.p; changed++; }
+        if (v.c !== null && v.c !== undefined && v.c !== d.dayChange){ d.dayChange = v.c; changed++; }
+      }
+      const dot = document.getElementById('liveDot');
+      if (dot){ dot.style.display = ''; dot.title = 'Prices update automatically (~30s delayed). Scores refresh hourly.'; }
+      if (!changed) return;
+      renderKpis();
+      renderHeatStrip();
+      renderBody();
+      const card = document.getElementById('detailCard');
+      const wrap = document.getElementById('phWrap');
+      if (card && card.classList.contains('open') && wrap){
+        const d = DATA.find(x => x.ticker === wrap.getAttribute('data-ticker'));
+        if (d){
+          const pEl = card.querySelector('.detail-price');
+          if (pEl && pEl.textContent !== fmtMoney(d, d.price)){
+            pEl.textContent = fmtMoney(d, d.price);
+            pEl.classList.remove('live-flash'); void pEl.offsetWidth; pEl.classList.add('live-flash');
+          }
+          const dcEl = document.getElementById('dcToday');
+          if (dcEl && d.dayChange !== null && d.dayChange !== undefined){
+            dcEl.className = d.dayChange >= 0 ? 'pos' : 'neg';
+            dcEl.innerHTML = `<b>${fmtPct(d.dayChange)}</b> today`;
+          }
+        }
+      }
+    } catch(e){ /* transient — next tick */ }
+  }
+  setInterval(tick, 45000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
+  setTimeout(tick, 4000);
+})();
 
 // ---------- full refresh (re-runs the whole pipeline via the Worker) ----------
 // POST /refresh on the Worker triggers the hourly-refresh workflow with a
