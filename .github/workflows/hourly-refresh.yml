@@ -67,7 +67,9 @@ jobs:
         id: pages
         if: steps.dedup.outputs.skip != 'true'
         run: |
-          mkdir pub && cp out/index.html pub/ && cp -r state/pwa/. pub/ && cd pub
+          mkdir pub && cp out/index.html pub/ && cp -r state/pwa/. pub/
+          echo "valuetally.com" > pub/CNAME   # custom domain — GitHub Pages reads this from the branch root
+          cd pub
           git init -q -b claude/pages
           git config user.email "pipeline@claude.local"
           git config user.name "Stock Dashboard Pipeline"
