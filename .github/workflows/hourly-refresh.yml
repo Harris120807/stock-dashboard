@@ -2,9 +2,11 @@ name: Hourly dashboard refresh
 
 on:
   schedule:
-    - cron: "45 7-19 * * 1-5"   # backup only — cron-job.org is the primary scheduler.
-                                # 7:45-11:45 covers London/European hours (LSE opens
-                                # 07:00 UTC in summer); 12:45-19:45 covers US hours.
+    - cron: "45 9,15 * * 1-5"   # backup sentinel only — cron-job.org is the primary
+                                # scheduler at full 45 7-19 cadence. Two daily slots
+                                # (one UK/EU, one US hours) keep coverage if the
+                                # primary dies without burning a runner boot every
+                                # hour just to dedup-skip (thinned 2026-07-22).
   workflow_dispatch: {}
 
 permissions:
