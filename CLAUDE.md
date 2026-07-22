@@ -1,9 +1,9 @@
 # Stock Dashboard — Project Memory
 
-**StockDash** (product name + capitalization owner-chosen 2026-07-21) — auto-refreshing stock value dashboard: **top 50 US + top 30 UK/European stocks** by
+**ValueTally** (product name owner-chosen 2026-07-22; previously StockDash 07-21→07-22, renamed after discovering stockdash.co.uk — an unrelated, three-months-older UK portfolio app; valuetally.com/.co.uk/.uk were all free at decision time, owner registers them). Repo/infra IDs (stock-dashboard, stockdash-proxy, harris-stockdash ntfy topics) deliberately KEEP their old names — they are addresses, not brand — auto-refreshing stock value dashboard: **top 50 US + top 30 UK/European stocks** by
 market cap, scored on valuation multiples, technicals, and analyst sentiment.
 
-- **Live site**: https://harris120807.github.io/stock-dashboard/ (GitHub Pages, served from `claude/pages`)
+- **Live site**: https://valuetally.com/ (GitHub Pages, served from `claude/pages`; DNS via owner's Cloudflare free zone, grey-cloud A records to GitHub + www CNAME; harris120807.github.io/stock-dashboard 301-redirects once the CNAME file is in the publish)
 - **Artifact mirror** (may lag; optional publish target): https://claude.ai/code/artifact/d5987bbf-966d-431c-a4fd-d9a68c40059d
 - **Owner notifications**: ntfy.sh topic `harris-stockdash-3cb22f88` → owner's phone. **Never send test messages to it.**
 

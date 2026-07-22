@@ -1,6 +1,6 @@
 {
-  "name": "StockDash",
-  "short_name": "StockDash",
+  "name": "ValueTally",
+  "short_name": "ValueTally",
   "description": "The largest US & European stocks, scored on valuation, price trend and analyst sentiment.",
   "start_url": "/stock-dashboard/",
   "scope": "/stock-dashboard/",

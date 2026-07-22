@@ -21,7 +21,7 @@
 
 const STATE_RAW = 'https://raw.githubusercontent.com/Harris120807/stock-dashboard/claude/state/';
 const API_TTL = 300;
-const SITE = 'https://harris120807.github.io/stock-dashboard/';
+const SITE = 'https://valuetally.com/';
 
 const TTL = { quote: 60, metric: 600, search: 86400 };
 const ALLOWED = { quote: ['symbol'], metric: ['symbol'], search: ['q'] };
@@ -59,7 +59,7 @@ const slim = (d, watch) => ({
 });
 
 const API_META = {
-  name: 'StockDash scores API',
+  name: 'ValueTally scores API',
   site: SITE,
   endpoints: {
     '/api/scores': 'all covered stocks with value/indicator/combined scores, position and watchlist flag',
@@ -145,7 +145,7 @@ async function handleRefresh(env, ctx) {
   const gh = {
     'Authorization': 'Bearer ' + env.GH_TOKEN,
     'Accept': 'application/vnd.github+json',
-    'User-Agent': 'stockdash-refresh-trigger',
+    'User-Agent': 'valuetally-refresh-trigger',
   };
   const r = await fetch(`https://api.github.com/repos/${GH_REPO}/actions/workflows/${GH_WF}/dispatches`, {
     method: 'POST', headers: { ...gh, 'Content-Type': 'application/json' }, body: JSON.stringify({ ref: 'main' }),

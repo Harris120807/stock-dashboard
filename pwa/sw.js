@@ -1,6 +1,6 @@
 // Network-first service worker: the dashboard's whole point is fresh data, so
 // the cache is only a fallback for offline/most-recent-copy viewing.
-const CACHE = 'stockdash-v1';
+const CACHE = 'valuetally-v1';
 self.addEventListener('install', e => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(clients.claim()));
 self.addEventListener('fetch', e => {

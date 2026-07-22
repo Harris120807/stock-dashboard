@@ -21,7 +21,7 @@ OUT = os.environ.get("OUT_DIR", "runout")
 NOTIFY = os.environ.get("NOTIFY", "0") == "1"
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 NTFY = "https://ntfy.sh/harris-stockdash-3cb22f88"
-PAGES_URL = "https://harris120807.github.io/stock-dashboard/"
+PAGES_URL = "https://valuetally.com/"
 os.makedirs(f"{OUT}/ck", exist_ok=True)
 
 def get(url, headers=None, retries=4):
@@ -576,7 +576,7 @@ subprocess.run(["node", "--check", f"{OUT}/check.js"], check=True)
 i = final.index("</style>") + len("</style>")
 wrapped = ('<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n'
            '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
-           '<title>StockDash</title>\n'
+           '<title>ValueTally</title>\n'
            '<link rel="manifest" href="manifest.json">\n'
            '<meta name="theme-color" content="#0a101d">\n'
            '<link rel="apple-touch-icon" href="apple-touch-icon.png">\n'
@@ -603,7 +603,7 @@ for d in records:
 open(f"{OUT}/notify.txt", "w").write(body)
 if NOTIFY:
     req = urllib.request.Request(NTFY, data=body.encode(), headers={
-        "Title": "StockDash refreshed", "Tags": "bar_chart", "Click": PAGES_URL})
+        "Title": "ValueTally refreshed", "Tags": "bar_chart", "Click": PAGES_URL})
     urllib.request.urlopen(req, timeout=15)
 
 # ---------- stock-request inbox: poll the public ntfy topic into a durable log ----------
