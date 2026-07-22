@@ -86,8 +86,8 @@ async function handleApi(path, ctx) {
     if (!d) return json({ error: 'unknown ticker', hint: 'see /api/scores for coverage' }, 404);
     let scoreHistory = null;
     try {
-      const long = await stateJson('price-history-long.json', ctx);
-      const h = (long.byTicker || {})[d.ticker];
+      // long history is sharded per ticker (state/history/{T}.json, 2026-07-22)
+      const h = await stateJson('history/' + d.ticker.replace(/\//g, '_') + '.json', ctx);
       if (h && h.st && h.st.length) {
         scoreHistory = h.st.map((dn, i) => ({ date: new Date(dn * 86400000).toISOString().slice(0, 10), combinedScore: h.s[i] }));
       }
