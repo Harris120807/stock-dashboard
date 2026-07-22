@@ -507,10 +507,9 @@ for d in records:
             h["s"].append(d["combinedScore"])
     while h["t"] and h["t"][0] < cutoff:
         h["t"].pop(0); h["p"].pop(0); h["s"].pop(0)
-    # 1Y daily series for the chart's range toggle, rebuilt fresh each run
-    cl, ts = CLOSES.get(tkr, ([], []))
-    if cl and ts and len(cl) == len(ts):
-        h["d"] = {"t": [x // 86400 for x in ts[-252:]], "p": [round(x, 3) for x in cl[-252:]]}
+    # (the 1Y daily series used to be duplicated here as h["d"] — the page now
+    # reads the 1Y range from price-history-long.json, so it's gone)
+    h.pop("d", None)
 json.dump({"updatedAt": now.isoformat(), "byTicker": ph}, open(f"{STATE}/price-history.json", "w"), separators=(",", ":"))
 
 # ---------- long-run daily history (5y prices + all-time daily score) ----------
@@ -521,25 +520,32 @@ json.dump({"updatedAt": now.isoformat(), "byTicker": ph}, open(f"{STATE}/price-h
 # last stored one (today's provisional close may be refreshed in place), rolling
 # 1830-day cap. "st"/"s": one combinedScore point per UTC day, NEVER pruned.
 def update_long_history(e, ts, cl, score, today_dn, cap=1830):
+    # Returns True only on durable changes (new daynum or new daily score point).
+    # In-place refreshes of today's provisional close are NOT durable — skipping
+    # the file write for those keeps the hourly git churn on this 1.2MB file
+    # down to ~1-2 commits/day instead of one per run.
+    changed = False
     if cl and ts and len(cl) == len(ts):
         last_dn = e["t"][-1] if e["t"] else -1
         for tt, cc in zip(ts, cl):
             dn = tt // 86400
             if dn > last_dn:
-                e["t"].append(dn); e["p"].append(round(cc, 3)); last_dn = dn
+                e["t"].append(dn); e["p"].append(round(cc, 3)); last_dn = dn; changed = True
             elif e["t"] and dn == e["t"][-1]:
                 e["p"][-1] = round(cc, 3)  # refresh today's in-progress close
         cut = e["t"][-1] - (cap - 1) if e["t"] else 0
         while e["t"] and e["t"][0] < cut:
             e["t"].pop(0); e["p"].pop(0)
     if score is not None and (not e["st"] or e["st"][-1] != today_dn):
-        e["st"].append(today_dn); e["s"].append(score)
+        e["st"].append(today_dn); e["s"].append(score); changed = True
+    return changed
 
 try:
-    lh = json.load(open(f"{STATE}/price-history-long.json")).get("byTicker", {})
+    lh_all = json.load(open(f"{STATE}/price-history-long.json")).get("byTicker", {})
 except Exception:
-    lh = {}
-lh = {t: v for t, v in lh.items() if t in current}
+    lh_all = {}
+lh = {t: v for t, v in lh_all.items() if t in current}
+lh_dirty = len(lh) != len(lh_all)
 today_dn = now_s // 86400
 for d in records:
     e = lh.setdefault(d["ticker"], {"t": [], "p": [], "st": [], "s": []})
@@ -549,8 +555,10 @@ for d in records:
         # price series (the score series st/s is untouched)
         e["t"], e["p"] = [], []
         cl, ts = RESYNC[d["ticker"]]
-    update_long_history(e, ts, cl, d["combinedScore"], today_dn)
-json.dump({"updatedAt": now.isoformat(), "byTicker": lh}, open(f"{STATE}/price-history-long.json", "w"), separators=(",", ":"))
+        lh_dirty = True
+    lh_dirty |= update_long_history(e, ts, cl, d["combinedScore"], today_dn)
+if lh_dirty:
+    json.dump({"updatedAt": now.isoformat(), "byTicker": lh}, open(f"{STATE}/price-history-long.json", "w"), separators=(",", ":"))
 
 # ---------- build html ----------
 data_json = json.dumps(records, separators=(",", ":"), ensure_ascii=False)

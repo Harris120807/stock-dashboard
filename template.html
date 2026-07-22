@@ -1061,7 +1061,7 @@ function drawPriceHistory(d){
     b.classList.toggle('on', b.getAttribute('data-r') === phRange);
     b.onclick = () => { phRange = b.getAttribute('data-r'); drawPriceHistory(d); };
   });
-  const useLong = phRange === '5y';
+  const useLong = phRange !== '30d';   // 1Y and 5Y both come from the long-history file
   const fetches = useLong
     ? Promise.all([fetchPriceHistory(), fetchLongHistory().catch(() => null)])
     : fetchPriceHistory().then(p => [p, null]);
@@ -1071,13 +1071,17 @@ function drawPriceHistory(d){
     const by = ph.byTicker || {};
     const h = by[d.ticker];
     if (!h || !h.t || h.t.length < 2){ wrap.style.display = 'none'; return; }
-    const Lh = useLong ? ((phl && phl.byTicker) || {})[d.ticker] : null;
-    const fiveY = !!(Lh && Lh.t && Lh.t.length > 60);
-    // a 5Y request without long data degrades to the 1Y series
-    const oneY = !fiveY && phRange !== '30d' && h.d && h.d.t && h.d.t.length > 30;
-    const T = fiveY ? Lh.t.map(x => x * 86400) : oneY ? h.d.t.map(x => x * 86400) : h.t;
-    const P = fiveY ? Lh.p : oneY ? h.d.p : h.p;
-    let S = (fiveY || oneY) ? null : (h.s || null);
+    const LhAll = useLong ? ((phl && phl.byTicker) || {})[d.ticker] : null;
+    const longOk = !!(LhAll && LhAll.t && LhAll.t.length > 60);
+    // long data missing (very new listing) degrades to the 30d hourly series
+    const fiveY = longOk && phRange === '5y';
+    const oneY = longOk && phRange === '1y';
+    const Lh = fiveY ? LhAll
+             : oneY ? { t: LhAll.t.slice(-252), p: LhAll.p.slice(-252), st: LhAll.st, s: LhAll.s }
+             : null;
+    const T = Lh ? Lh.t.map(x => x * 86400) : h.t;
+    const P = Lh ? Lh.p : h.p;
+    let S = Lh ? null : (h.s || null);
     if (fiveY && Lh.st && Lh.st.length >= 2){
       // align the daily score series (own timestamps) onto the price axis
       const sm = {};
@@ -2367,12 +2371,15 @@ function applyHash(){
   }
 
   // one series for one ticker under the current metric/range; null if not derivable
+  let _cmpPhl = null;   // long-history file, fetched only when the 1Y range needs it
   function seriesFor(t, ph){
     const m = metric(), h = (ph.byTicker || {})[t], d = DATA.find(x => x.ticker === t);
     if (!h || !h.t || h.t.length < 2 || !d) return null;
-    const oneY = st.range === '1y' && m.kind !== 'score' && h.d && h.d.t && h.d.t.length > 30;
-    const T = oneY ? h.d.t.map(x => x * 86400) : h.t;
-    const P = oneY ? h.d.p : h.p;
+    let T = h.t, P = h.p;
+    if (st.range === '1y' && m.kind !== 'score'){
+      const Lh = ((_cmpPhl && _cmpPhl.byTicker) || {})[t];
+      if (Lh && Lh.t && Lh.t.length > 30){ T = Lh.t.slice(-252).map(x => x * 86400); P = Lh.p.slice(-252); }
+    }
     if (m.kind === 'pct'){ const p0 = P[0]; return p0 ? {T, V: P.map(p => 100 * (p / p0 - 1))} : null; }
     if (m.kind === 'score'){
       const S = h.s || [];
@@ -2399,8 +2406,11 @@ function applyHash(){
     if (!m.ts){ drawBars(m); return; }
     if (typeof fetch !== 'function'){ svg.style.display = 'none'; return; }
     svg.innerHTML = '';
-    fetchPriceHistory().then(ph => {
+    Promise.all([fetchPriceHistory(),
+                 st.range === '1y' ? fetchLongHistory().catch(() => null) : Promise.resolve(null)])
+    .then(([ph, phl]) => {
       if (metric() !== m) return;
+      _cmpPhl = phl;
       drawTs(m, ph);
     }).catch(() => {
       svg.style.display = 'none'; emptyEl.style.display = '';

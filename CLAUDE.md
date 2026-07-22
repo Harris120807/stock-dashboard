@@ -13,7 +13,7 @@ market cap, scored on valuation multiples, technicals, and analyst sentiment.
 |---|---|---|
 | `main` | Workflows + legacy snapshot | Changes go via PR. **Standing owner authorization (2026-07-16): Claude may open AND self-merge PRs for small pipeline/workflow changes.** Anything that changes what the system *does* — new data sources, notification behavior, spending money, big architecture — still needs the owner's explicit OK first. |
 | `claude/pages` | `index.html` only — the published site | Force-pushed as ONE fresh commit per refresh, only by a pipeline run. Never hand-edit; it's overwritten on every refresh. |
-| `claude/state` | Pipeline state: `template.html`, `universe.json`, `analyst-state.json`, `fundamentals-state.json`, `watchlist-state.json`, `scripts/`, `routines/*.md` (docs), `README.md` | Normal commits; on push rejection `git pull --rebase origin claude/state` and retry. |
+| `claude/state` | Pipeline state: `template.html`, `universe.json`, `analyst-state.json`, `fundamentals-state.json`, `watchlist-state.json`, `scripts/`, `routines/*.md` (docs), `README.md` | Normal commits; on push rejection `git pull --rebase origin claude/state` and retry. History squashed to a single snapshot 2026-07-22 (owner-approved one-time force-push — do NOT force-push otherwise). |
 | `claude/stock-dashboard-updates-*` | Dev/session branches | Per-session work. |
 
 ## Architecture
@@ -26,7 +26,7 @@ no Claude sessions in the loop:
 |---|---|---|---|
 | `weekly-universe.yml` | `scripts/weekly_universe.py` | `0 11 * * 1` | `universe.json`; ntfy only on membership change |
 | `daily-analyst.yml` | `scripts/daily_analyst.py` | `0 12 * * 1-5` | `analyst-state.json`, `news-state.json`, `fundamentals-state.json` (profile2+metric+refPrice prefetch — see hourly note) |
-| `hourly-refresh.yml` | `scripts/refresh.py` | `45 7-19 * * 1-5` (7-11 UTC = UK/EU hours, added 2026-07-21; backup — cron-job.org is primary, see workflow comment) | `claude/pages` (page + `pwa/` copy), `watchlist-state.json`, `last-data.json`, `price-history.json`, `price-history-long.json`, `requests-log.json`, ntfy push. **Yahoo-only since 2026-07-22**: prices/charts/FX from Yahoo; fundamentals read from `fundamentals-state.json` (daily prefetch), marketCap scaled by price drift vs `refPrice`; Finnhub hit per ticker only as fallback (bootstrap/new entrant/failed Yahoo) — keeps the shared 60/min budget for the page's refresh buttons. Charts are incremental: range=5d stitched onto stored `price-history-long.json`; full 2y refetch Mondays or when stored <260 days; if the 5d overlap disagrees >3% on 2+ days (Yahoo split/dividend rewrite) the ticker resyncs from 5y and REPLACES its stored price series (score series kept) |
+| `hourly-refresh.yml` | `scripts/refresh.py` | `45 7-19 * * 1-5` (7-11 UTC = UK/EU hours, added 2026-07-21; backup — cron-job.org is primary, see workflow comment) | `claude/pages` (page + `pwa/` copy), `watchlist-state.json`, `last-data.json`, `price-history.json`, `price-history-long.json`, `requests-log.json`, ntfy push. **Yahoo-only since 2026-07-22**: prices/charts/FX from Yahoo; fundamentals read from `fundamentals-state.json` (daily prefetch), marketCap scaled by price drift vs `refPrice`; Finnhub hit per ticker only as fallback (bootstrap/new entrant/failed Yahoo) — keeps the shared 60/min budget for the page's refresh buttons. Charts are incremental: range=5d stitched onto stored `price-history-long.json`; full 2y refetch Mondays or when stored <260 days; if the 5d overlap disagrees >3% on 2+ days (Yahoo split/dividend rewrite) the ticker resyncs from 5y and REPLACES its stored price series (score series kept). `price-history-long.json` is written only when a durable change lands (new daily close/score point — ~1-2 commits/day); `price-history.json` no longer carries the per-ticker `d` 1Y series (2026-07-22) — the page reads 1Y AND 5Y from the long file (shared contract with template.html chart code) |
 
 **cron-job.org (primary scheduler, owner's account)**: job 8110348 "Dashboard
 hourly refresh" (45 7-19 UTC Mon-Fri, extended to UK/EU hours 2026-07-21) and
@@ -43,8 +43,7 @@ workflow steps do the git pushes and the ntfy notification (from `OUT_DIR/notify
 **History note**: three Claude Routine triggers (`trig_01EZNpuGei4t6XJryyAXtEKG` weekly,
 `trig_01Bn3hEqV1UWQn5r8eUwmTsf` daily, `trig_01C1qZnkgCmAG9Y8HffytCYN` hourly) predate
 the Actions port. Their spawned sessions could fetch and notify but never push, so they
-were superseded; they should be disabled/deleted once Actions is confirmed running — if
-they're still enabled and Actions is live, the owner gets DOUBLE notifications. Their
+were superseded; all three were DELETED 2026-07-22 with the owner's explicit authorization. Their
 prompt sources remain in `routines/*.md` on `claude/state` as documentation of the logic.
 
 ## Running the pipeline manually
@@ -178,6 +177,13 @@ them, then republish via `refresh.py`.
   only a one-line "Data: Finnhub & Yahoo Finance" credit; provider mechanics and
   freshness details live ONLY in the Info gate. Don't re-add verbose provenance
   to the visible chrome. Keep the Finnhub credit — likely a ToS requirement.
+- **Full refresh button (2026-07-22, owner-requested)**: header button POSTs to the
+  Worker's `/refresh`, which triggers `hourly-refresh.yml` via a fine-grained GitHub
+  PAT (Actions-only on this repo) stored as Worker secret `GH_TOKEN` — the SAME PAT
+  also lives in the cron-job.org job headers; **rotation must update both places**.
+  No Worker-side cooldown (owner decision) — the workflow's 3-min dedup is the only
+  rate control. Progress bar is time-calibrated, capped at 95% until the page's
+  publish commit is detected. Owner chose to KEEP the hourly ntfy pulse (2026-07-22).
 - **Stock requests page** POSTs to public ntfy topic `harris-stockdash-req-a2962152`
   (deliberately separate from the private pipeline topic — it's spam-exposed by
   design; owner subscribes to it read-only). Client-side throttle: 15s double-submit cooldown only (daily caps removed 2026-07-18 once search went through the proxy)
@@ -199,8 +205,8 @@ them, then republish via `refresh.py`.
   `{updatedAt, byTicker: {T: {t:[daynums], p:[daily closes, native ccy], st:[daynums],
   s:[combinedScore]}}}` — 5y daily closes (capped 1830d, seeded by
   `scripts/backfill_history.py`) + never-pruned daily score series, maintained
-  incrementally by `refresh.py`. The 5Y chart range and its score overlay lazy-fetch
-  this file (`PHL_URL`); 30D/1Y still come from `price-history.json`.
+  incrementally by `refresh.py`. The 1Y and 5Y chart ranges (detail card + compare) lazy-fetch
+  this file (`PHL_URL`); only 30D comes from `price-history.json`.
 
 ## Cloudflare (client API proxy)
 
