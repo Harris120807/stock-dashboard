@@ -1,13 +1,13 @@
 {
  "buy": [
-  "SHEL.L",
-  "TTE.PA",
-  "MU"
+  "FMX",
+  "DAL",
+  "PBR"
  ],
  "sell": [
-  "CRWD",
+  "BE",
   "ARM",
-  "TSLA"
+  "CRWD"
  ],
- "updatedAt": "2026-07-23T12:05:09.803801+00:00"
+ "updatedAt": "2026-07-23T12:47:42.849484+00:00"
 }
