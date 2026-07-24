@@ -18,6 +18,10 @@
 body{margin:0;font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--page);color:var(--ink);padding:16px;padding-bottom:48px}
 .wrap{max-width:760px;margin:0 auto}
 .cols{display:grid;gap:14px;grid-template-columns:1fr}
+.atabs{display:flex;gap:8px;margin-bottom:14px}
+.atab{padding:8px 18px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--muted);cursor:pointer;font:inherit;font-weight:600}
+.atab.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.hidden{display:none}
 @media (min-width:1000px){
   .wrap{max-width:1240px}
   .cols{grid-template-columns:1.15fr .85fr;align-items:start}
@@ -80,6 +84,12 @@ a{color:var(--accent)}
 
   <div id="panel" class="hidden">
 
+    <div class="atabs">
+      <button class="atab on" data-atab="overview">Overview</button>
+      <button class="atab" data-atab="requests">Requests</button>
+    </div>
+
+    <div id="atab-overview">
     <div class="card">
       <h2>Status</h2>
       <div class="kpis">
@@ -128,12 +138,15 @@ a{color:var(--accent)}
     </div>
     </div>
     </div>
+    </div>
 
+    <div id="atab-requests" class="hidden">
+    <div class="cols">
     <div class="card">
       <h2>Visitor requests</h2>
       <div class="req-grid" id="reqGrid"></div>
       <div class="msg" id="reqMsg"></div>
-      <div class="hint">Tickers visitors asked for on the requests page, most-requested first. <b>Add</b> stages one into the form below — review, pair European natives if needed, then submit.</div>
+      <div class="hint">Tickers visitors asked for on the requests page, most-requested first. <b>Add</b> looks up the ADR pairing where needed and stages the ticker into the form — review, then submit.</div>
     </div>
 
     <div class="card">
@@ -145,6 +158,8 @@ a{color:var(--accent)}
         <span class="hint" id="addHint"></span>
       </div>
       <div class="msg" id="addMsg"></div>
+    </div>
+    </div>
     </div>
 
     <div class="row" style="justify-content:flex-end"><button class="ghost" id="logoutBtn">Sign out</button></div>
@@ -395,6 +410,13 @@ document.querySelectorAll('[data-wf]').forEach(btn => btn.addEventListener('clic
     $('runMsg').className = 'msg ok';
   } catch (e) { $('runMsg').textContent = 'Failed: ' + e.message; $('runMsg').className = 'msg err'; }
   setTimeout(() => { btn.disabled = false; }, 5000);   // note: back-to-back re-dispatches within 3 min dedup-skip themselves
+}));
+
+document.querySelectorAll('.atab').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.atab').forEach(x => x.classList.toggle('on', x === b));
+  document.getElementById('atab-overview').classList.toggle('hidden', b.dataset.atab !== 'overview');
+  document.getElementById('atab-requests').classList.toggle('hidden', b.dataset.atab !== 'requests');
+  if (b.dataset.atab === 'requests') loadRequests();
 }));
 
 // keep the requests grid live while the console is open (visible tab only)
