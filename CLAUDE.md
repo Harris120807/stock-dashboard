@@ -306,6 +306,37 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   currently switched off" in the detail card; `/refresh` 403 shows the
   owner-disabled message.
 
+## Accounts (2026-07-24, owner-requested email+password)
+
+- **Stack**: Worker routes `/auth/*`, `/me`, `/me/watchlist` + **D1** database
+  `valuetally` (uuid f6e7639b-133d-4ecf-88d6-d7e006756833, binding `DB`; schema
+  in `worker/schema.sql`: users/sessions/tokens/watchlists/attempts). Passwords
+  = PBKDF2-SHA256 100k iters + per-user salt (never plaintext); sessions = 64-hex
+  bearer tokens, 90d; rate limiting is D1-backed (attempts table). Flows:
+  signup (verify email), login, logout, verify (302 → site `#verified=1`),
+  resend-verify, forgot → one-time 1h reset link (`#reset=TOKEN`; reset signs
+  out all sessions), delete-account (full wipe — GDPR). Forgot always answers
+  the same whether the account exists (no address probing).
+- **Email**: Resend, send-only API key as Worker secret `RESEND_API_KEY`;
+  `MAIL_FROM` secret is the sender — Resend test sender until valuetally.com
+  verifies in Resend (then switch to `ValueTally <account@valuetally.com>`).
+  In test mode Resend only delivers to the owner's address. NO tracking domain
+  (owner-agreed): auth links must not be rewritten.
+- **UI (template.html)**: header account button + modal (sign in/up/forgot/
+  reset/account states); Watchlist tab (`#watchlist` view): starred table
+  (live-price aware) + system top/bottom-3 chips; star buttons in detail card
+  and watchlist rows. Signed out = localStorage `vt-stars` (device-local);
+  sign-in **union-merges** local+server then server is truth (write-through
+  PUT on every toggle). Session in localStorage `vt-session`; 401 anywhere
+  clears it. Gate carries an "Accounts & privacy" paragraph — keep it honest
+  with what's actually stored.
+- **Worker deploys now carry THREE bindings** (kv_namespace CONFIG,
+  analytics_engine TRAFFIC, d1 DB) + keep_bindings secret_text; SIX secrets:
+  FINNHUB_API_KEY, GH_TOKEN, ADMIN_KEY, CF_ANALYTICS_TOKEN, RESEND_API_KEY,
+  MAIL_FROM. Body parsing covers POST **and PUT**; CORS allows GET/POST/PUT.
+- Owner signed up in-session with a TEMP password that appeared in chat — they
+  were told to reset it via the emailed link immediately.
+
 ## Multi-agent coordination
 
 - **Lanes**: (1) UI/template → `template.html` on `claude/state`; (2) scoring/pipeline →
