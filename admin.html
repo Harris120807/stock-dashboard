@@ -48,6 +48,12 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .range button.on{background:var(--accent);color:#fff}
 .range button{background:transparent;color:var(--muted);border:1px solid var(--line);padding:5px 12px;font-size:13px}
 .hint{font-size:12px;color:var(--muted);margin-top:6px}
+.req-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:8px}
+.req-tile{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--page)}
+.req-tile b{font-size:14px}
+.req-tile .meta{font-size:11px;color:var(--muted);margin:2px 0 6px}
+.req-tile button{padding:4px 10px;font-size:12px;width:100%}
+.req-tile .tracked{display:inline-block;width:100%;text-align:center;font-size:12px;color:var(--good);border:1px solid var(--line);border-radius:8px;padding:4px 0}
 a{color:var(--accent)}
 .hidden{display:none}
 </style>
@@ -99,6 +105,13 @@ a{color:var(--accent)}
     </div>
 
     <div class="card">
+      <h2>Visitor requests</h2>
+      <div class="req-grid" id="reqGrid"></div>
+      <div class="msg" id="reqMsg"></div>
+      <div class="hint">Tickers visitors asked for on the requests page, most-requested first. <b>Add</b> stages one into the form below — review, pair European natives if needed, then submit.</div>
+    </div>
+
+    <div class="card">
       <h2>Add stocks to the universe</h2>
       <textarea id="tickIn" placeholder="AAPL, TSM, HSBA.L:HSBC"></textarea>
       <div class="hint">US-listed: just the symbol. European: <b>NATIVE:ADR</b> (native listing for prices, US ADR for fundamentals) — e.g. <code>BMW.DE:BMWYY</code>. Up to 20 per submission. Additions are permanent (append-only pool) and get their full 5-year history immediately.</div>
@@ -139,7 +152,49 @@ $('loginBtn').onclick = () => { KEY = $('keyIn').value.trim(); localStorage.setI
 $('keyIn').addEventListener('keydown', e => { if (e.key === 'Enter') $('loginBtn').click(); });
 $('logoutBtn').onclick = () => { localStorage.removeItem('vt-admin-key'); location.reload(); };
 
-function loadAll() { loadStatus(); loadConfig(); loadStats(); }
+function loadAll() { loadStatus(); loadConfig(); loadStats(); loadRequests(); }
+
+const REQ_LOG = 'https://raw.githubusercontent.com/Harris120807/stock-dashboard/claude/state/requests-log.json';
+
+async function loadRequests() {
+  const grid = $('reqGrid');
+  try {
+    const [log, scores] = await Promise.all([
+      fetch(REQ_LOG, { cache: 'no-cache' }).then(r => r.json()),
+      fetch(API + '/api/scores').then(r => r.json()).catch(() => ({ stocks: [] })),
+    ]);
+    const tracked = new Set((scores.stocks || []).map(s => s.ticker));
+    const rows = Object.entries(log.byTicker || {})
+      .sort((a, b) => (b[1].count - a[1].count) || String(b[1].lastAt).localeCompare(String(a[1].lastAt)));
+    grid.innerHTML = '';
+    if (!rows.length) { $('reqMsg').textContent = 'No visitor requests logged yet.'; return; }
+    for (const [t, info] of rows) {
+      const tile = document.createElement('div');
+      tile.className = 'req-tile';
+      const last = info.lastAt ? new Date(info.lastAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '';
+      const b = document.createElement('b'); b.textContent = t;
+      const meta = document.createElement('div'); meta.className = 'meta';
+      meta.textContent = info.count + '× requested' + (last ? ' · last ' + last : '');
+      tile.append(b, meta);
+      if (tracked.has(t)) {
+        const span = document.createElement('span'); span.className = 'tracked'; span.textContent = '✓ tracked';
+        tile.append(span);
+      } else {
+        const btn = document.createElement('button'); btn.textContent = 'Add';
+        btn.onclick = () => {
+          const cur = $('tickIn').value.trim();
+          const have = cur.toUpperCase().split(/[\s,]+/).filter(Boolean);
+          if (!have.includes(t)) $('tickIn').value = cur ? cur + ', ' + t : t;
+          $('tickIn').dispatchEvent(new Event('input'));
+          $('tickIn').scrollIntoView({ behavior: 'smooth', block: 'center' });
+          btn.textContent = 'Staged ✓'; btn.disabled = true;
+        };
+        tile.append(btn);
+      }
+      grid.append(tile);
+    }
+  } catch (e) { $('reqMsg').textContent = 'Could not load the requests log.'; $('reqMsg').className = 'msg err'; }
+}
 
 async function loadStatus() {
   try {
