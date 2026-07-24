@@ -247,6 +247,37 @@ async function handleAdmin(route, req, env, ctx) {
     return json({ ok: true, workflow: body.workflow }, 200, 0);
   }
 
+  if (route === 'admin/adr-lookup' && req.method === 'GET') {
+    // Suggest US-listed ADR candidates for a native (non-US) symbol: resolve
+    // the symbol to a company name via Yahoo search, then search the name and
+    // keep US-exchange equities. Suggestions only — the owner confirms, and
+    // add-tickers.yml still validates the pair against Finnhub before adding.
+    const sym = (new URL(req.url).searchParams.get('symbol') || '').toUpperCase().slice(0, 15);
+    if (!/^[A-Z0-9.\-]{1,15}$/.test(sym)) return json({ error: 'bad symbol' }, 400, 0);
+    const ysearch = async q => {
+      const r = await fetch('https://query2.finance.yahoo.com/v1/finance/search?q=' + encodeURIComponent(q) + '&quotesCount=10&newsCount=0', { headers: YA_UA });
+      return r.ok ? (await r.json()).quotes || [] : [];
+    };
+    const own = (await ysearch(sym)).find(x => (x.symbol || '').toUpperCase() === sym);
+    const name = own && (own.longname || own.shortname);
+    if (!name) return json({ symbol: sym, name: null, candidates: [] }, 200, 0);
+    const US_EXCH = { NYQ: 'NYSE', NMS: 'NASDAQ', NGM: 'NASDAQ', NCM: 'NASDAQ', ASE: 'AMEX', PNK: 'OTC' };
+    const cleanName = name.replace(/\s+(ORD|ADR|DRN|FPO|R|S|V).*$/i, '').trim();
+    const shortName = cleanName.split(/\s+/).slice(0, 2).join(' ');
+    const [r1, r2] = await Promise.all([ysearch(cleanName), shortName !== cleanName ? ysearch(shortName) : []]);
+    const seen = new Set();
+    // rank: listed exchanges before OTC; among OTC, Y-suffix sponsored ADRs
+    // before F-suffix ordinary lines (often dead — RHHBY-not-RHHVF trap)
+    const score = x => (x.exchange !== 'PNK' ? 0 : /Y$/.test(x.symbol) ? 1 : /F$/.test(x.symbol) ? 3 : 2);
+    const candidates = [...r1, ...r2]
+      .filter(x => x.quoteType === 'EQUITY' && US_EXCH[x.exchange] && !/[.]/.test(x.symbol || '') && (x.symbol || '').toUpperCase() !== sym)
+      .filter(x => { const s = x.symbol.toUpperCase(); if (seen.has(s)) return false; seen.add(s); return true; })
+      .sort((a, b) => score(a) - score(b))
+      .slice(0, 3)
+      .map(x => ({ symbol: x.symbol.toUpperCase(), exchange: US_EXCH[x.exchange], name: x.longname || x.shortname || '' }));
+    return json({ symbol: sym, name: cleanName, candidates }, 200, 0);
+  }
+
   if (route === 'admin/stats') {
     const days = Math.min(30, Math.max(1, parseInt(new URL(req.url).searchParams.get('days') || '7', 10) || 7));
     // Preferred: Analytics Engine SQL (per-route breakdown) — needs a scoped
@@ -345,9 +376,17 @@ async function sendMail(env, to, subject, html) {
   if (!r.ok) throw new Error('mail failed ' + r.status + ' ' + (await r.text()).slice(0, 200));
 }
 
-const mailWrap = body => `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;color:#16233a">
-  <h2 style="color:#1e4f91">ValueTally</h2>${body}
-  <p style="font-size:12px;color:#5b6b84;margin-top:24px">If you didn't request this, you can safely ignore this email.</p></div>`;
+// Site-matched email shell (2026-07-24 owner request): light page tint, white
+// card, brand wordmark in the accent→tip gradient colors, accent button. All
+// styles inline — email clients strip <style> blocks.
+const mailWrap = body => `<div style="background:#f4f6fa;padding:32px 16px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+  <div style="max-width:440px;margin:0 auto">
+    <div style="font-size:21px;font-weight:800;margin:0 0 14px;letter-spacing:.2px"><span style="color:#1e4f91">Value</span><span style="color:#3fa3dd">Tally</span></div>
+    <div style="background:#ffffff;border:1px solid #dbe2ee;border-radius:14px;padding:26px 24px;color:#16233a;font-size:15px;line-height:1.55">${body}</div>
+    <p style="font-size:12px;color:#7d8595;margin:16px 4px 0;line-height:1.5">If you didn't request this, you can safely ignore this email — nothing changes unless the link is used.<br>
+    <a href="https://valuetally.com" style="color:#1e4f91;text-decoration:none">valuetally.com</a> — US &amp; European stocks, scored.</p>
+  </div></div>`;
+const mailBtn = (href, label) => `<p style="margin:20px 0 6px"><a href="${href}" style="display:inline-block;background:#1e4f91;color:#ffffff;padding:12px 22px;border-radius:9px;text-decoration:none;font-weight:600">${label}</a></p>`;
 
 async function sessionUser(req, env) {
   const tok = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
@@ -375,8 +414,9 @@ async function sendVerifyMail(env, userId, email) {
   await env.DB.prepare('INSERT INTO tokens (token, user_id, kind, expires_at) VALUES (?, ?, ?, ?)')
     .bind(t, userId, 'verify', Math.floor(Date.now() / 1000) + 172800).run();
   await sendMail(env, email, 'Confirm your ValueTally email',
-    mailWrap(`<p>Tap the button to confirm this email address for your ValueTally account.</p>
-      <p><a href="https://api.valuetally.com/auth/verify?t=${t}" style="background:#1e4f91;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">Confirm email</a></p>`));
+    mailWrap(`<p style="margin:0 0 4px;font-size:17px;font-weight:700">Welcome to ValueTally 👋</p>
+      <p style="margin:8px 0 0">Tap the button to confirm this email address and your account is all set — your watchlist will sync to every device you sign in on.</p>
+      ${mailBtn('https://api.valuetally.com/auth/verify?t=' + t, 'Confirm my email')}`));
 }
 
 async function handleAuth(route, req, env, ctx) {
@@ -447,8 +487,9 @@ async function handleAuth(route, req, env, ctx) {
         .bind(t, u.id, 'reset', Math.floor(Date.now() / 1000) + 3600).run();
       try {
         await sendMail(env, email, 'Reset your ValueTally password',
-          mailWrap(`<p>Tap the button to choose a new password. This link works once and expires in an hour.</p>
-            <p><a href="${SITE}#reset=${t}" style="background:#1e4f91;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">Reset password</a></p>`));
+          mailWrap(`<p style="margin:0 0 4px;font-size:17px;font-weight:700">Password reset</p>
+            <p style="margin:8px 0 0">Tap the button to choose a new password. The link works once and expires in an hour; using it signs you out everywhere else.</p>
+            ${mailBtn(SITE + '#reset=' + t, 'Choose a new password')}`));
       } catch (e) { return json({ error: 'could not send the email — try again shortly' }, 502, 0); }
     }
     // same response whether or not the account exists (no address probing)

@@ -223,13 +223,31 @@ async function loadRequests() {
         tile.append(span);
       } else {
         const btn = document.createElement('button'); btn.textContent = 'Add';
-        btn.onclick = () => {
+        btn.onclick = async () => {
+          btn.disabled = true;
+          let staged = t, note = '';
+          if (t.includes('.')) {
+            // non-US listing: look up US ADR candidates and pre-fill the pair
+            btn.textContent = 'Looking up…';
+            try {
+              const d = await authFetch('/admin/adr-lookup?symbol=' + encodeURIComponent(t)).then(r => r.json());
+              const c = (d.candidates || [])[0];
+              if (c) {
+                staged = t + ':' + c.symbol;
+                note = `Suggested ADR for ${t}: ${c.symbol} (${c.exchange}, ${c.name}) — check before submitting.`
+                  + ((d.candidates.length > 1) ? ' Alternatives: ' + d.candidates.slice(1).map(x => x.symbol).join(', ') : '');
+              } else {
+                note = `No US ADR found for ${t}${d.name ? ' (' + d.name + ')' : ''} — it likely can't be added without one.`;
+              }
+            } catch (e) { note = 'ADR lookup failed — pair it manually as NATIVE:ADR.'; }
+          }
           const cur = $('tickIn').value.trim();
           const have = cur.toUpperCase().split(/[\s,]+/).filter(Boolean);
-          if (!have.includes(t)) $('tickIn').value = cur ? cur + ', ' + t : t;
+          if (!have.some(x => x.split(':')[0] === t)) $('tickIn').value = cur ? cur + ', ' + staged : staged;
           $('tickIn').dispatchEvent(new Event('input'));
+          if (note) { $('addMsg').textContent = note; $('addMsg').className = 'msg'; }
           $('tickIn').scrollIntoView({ behavior: 'smooth', block: 'center' });
-          btn.textContent = 'Staged ✓'; btn.disabled = true;
+          btn.textContent = 'Staged ✓';
         };
         tile.append(btn);
       }
