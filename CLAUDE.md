@@ -396,9 +396,9 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   needs a 6th forward year — shards deliberately unchanged. Method: monthly
   samples, TODAY's ratios price-scaled (reconstruction bias — flatters mean
   reversion), technicals from closes, market-pool percentiles,
-  survivorship-biased universe. 5y run (60 samples, 331 tickers): 12m
-  Q5 +38.9% / Q1 +10.4% / bench +22.4%, monotonic at every horizon — present
-  ONLY with caveats. NOTE: backtest.yml also commits backtest.json, so local
+  survivorship-biased universe. 5y dividend-adjusted run (60 samples, 331
+  tickers, 2026-07-25): 12m Q5 +41.8% / Q1 +12.1% / bench +24.6%, monotonic
+  at every horizon — present ONLY with caveats. NOTE: backtest.yml also commits backtest.json, so local
   runs can conflict on rebase — regenerate or take the newer side.
 - **Hourly ntfy = status check (2026-07-24, owner request)**: body built in
   refresh.py — ▲/▼ counts + avg move + biggest mover / score ups↑ downs↓ +
