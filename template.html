@@ -103,6 +103,8 @@
   .asof-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .asof-row .refresh-btn { margin: 0; }
   .asof-row #fullRefreshNote { margin-top: 0; }
+  .stale-banner { position: sticky; top: 0; z-index: 60; display: none; background: var(--accent); color: #fff; text-align: center; padding: 9px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .stale-banner.show { display: block; }
   .live-dot { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-muted); }
   .live-dot::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--good); animation: livepulse 2.2s infinite; }
   @keyframes livepulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
@@ -650,6 +652,7 @@
   .sc-sub { font-size: 10.5px; color: var(--text-muted); line-height: 1.45; margin-top: 3px; }
 </style>
 <div class="viz-root">
+  <div class="stale-banner" id="staleBanner" role="button">You're viewing an old copy of this page — tap to load fresh data</div>
   <div class="wrap">
     <header class="page-head">
       <div class="head-row">
@@ -2655,6 +2658,19 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
       }
       const dot = document.getElementById('liveDot');
       if (dot){ dot.style.display = ''; dot.title = 'Prices update automatically (~30s delayed). Scores refresh hourly.'; }
+      // Stale-page detection: cached copies keep ticking live prices, which makes
+      // them look current while scores/fundamentals rot. If the pipeline has
+      // published a build >90 min newer than this one, offer a one-tap reload.
+      if (BUILT_AT && !window._staleShown){
+        fetch(API_PROXY + '/api/watchlist').then(r => r.json()).then(w => {
+          const latest = Date.parse(w.updatedAt || 0) / 1000;
+          if (latest - BUILT_AT > 5400){
+            window._staleShown = true;
+            const b = document.getElementById('staleBanner');
+            if (b){ b.classList.add('show'); b.onclick = () => location.reload(); }
+          }
+        }).catch(() => {});
+      }
       if (!changed) return;
       renderKpis();
       renderHeatStrip();
