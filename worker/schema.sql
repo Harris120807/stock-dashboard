@@ -4,6 +4,8 @@ CREATE TABLE IF NOT EXISTS users (
   pw_hash TEXT NOT NULL,
   salt TEXT NOT NULL,
   verified INTEGER NOT NULL DEFAULT 0,
+  alerts INTEGER NOT NULL DEFAULT 0,
+  unsub_token TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS sessions (

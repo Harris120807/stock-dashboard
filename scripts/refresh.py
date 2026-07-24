@@ -514,6 +514,16 @@ now = datetime.datetime.now(datetime.timezone.utc)
 json.dump({"buy": buy, "sell": sell, "updatedAt": now.isoformat()}, open(f"{STATE}/watchlist-state.json", "w"), indent=1)
 
 # ---------- persist last good data for next run's fallback ----------
+# score movement vs the last PRIOR-day score point — computed BEFORE the
+# last-data dump so the alerts digest (Worker cron reads last-data.json) sees
+# it; the page DATA and the Scores Improving card read the same field later
+_today_dn = int(now.timestamp()) // 86400
+for d in records:
+    _e = lh_read(d["ticker"])
+    _prior = next((_e["s"][i] for i in range(len(_e["st"]) - 1, -1, -1) if _e["st"][i] < _today_dn), None)
+    d["scoreDelta"] = (round(d["combinedScore"] - _prior, 4)
+                       if _prior is not None and d.get("combinedScore") is not None else None)
+
 # prune tickers no longer in the universe (removed foreign lines etc.) so the
 # fallback store — and /prices, which derives its symbol list from it — track the pool
 current = {d["ticker"] for d in records}
@@ -593,12 +603,7 @@ for d in records:
         e["t"], e["p"] = [], []
         cl, ts = RESYNC[d["ticker"]]
         dirty = True
-    # score movement vs the last PRIOR-day score point (feeds the overview
-    # "Scores Improving" card; today's provisional point is skipped so intra-day
-    # reruns don't zero the delta)
-    prior_s = next((e["s"][i] for i in range(len(e["st"]) - 1, -1, -1) if e["st"][i] < today_dn), None)
-    d["scoreDelta"] = (round(d["combinedScore"] - prior_s, 4)
-                       if prior_s is not None and d.get("combinedScore") is not None else None)
+    # (scoreDelta is computed earlier, before the last-data dump)
     dirty |= update_long_history(e, ts, cl, d["combinedScore"], today_dn)
     if dirty:
         json.dump(e, open(f"{STATE}/history/{d['ticker'].replace('/', '_')}.json", "w"), separators=(",", ":"))

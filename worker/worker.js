@@ -278,6 +278,12 @@ async function handleAdmin(route, req, env, ctx) {
     return json({ symbol: sym, name: cleanName, candidates }, 200, 0);
   }
 
+  if (route === 'admin/send-digests' && req.method === 'POST') {
+    // manual trigger for the daily watchlist digest (same code the cron runs)
+    await sendDigests(env, ctx);
+    return json({ ok: true, note: 'digest pass completed — emails sent only to opted-in users with events today' }, 200, 0);
+  }
+
   if (route === 'admin/stats') {
     const days = Math.min(30, Math.max(1, parseInt(new URL(req.url).searchParams.get('days') || '7', 10) || 7));
     // Preferred: Analytics Engine SQL (per-route breakdown) — needs a scoped
@@ -406,7 +412,7 @@ async function issueSession(env, userId) {
 
 async function userPayload(env, u, token) {
   const w = await env.DB.prepare('SELECT tickers FROM watchlists WHERE user_id = ?').bind(u.id).first();
-  return { token, email: u.email, verified: !!u.verified, watchlist: w ? JSON.parse(w.tickers) : [] };
+  return { token, email: u.email, verified: !!u.verified, alerts: !!u.alerts, watchlist: w ? JSON.parse(w.tickers) : [] };
 }
 
 async function sendVerifyMail(env, userId, email) {
@@ -528,7 +534,31 @@ async function handleAuth(route, req, env, ctx) {
   if (route === 'me' && req.method === 'GET') {
     const u = await sessionUser(req, env);
     if (!u) return json({ error: 'not signed in' }, 401, 0);
-    return json(await userPayload(env, u, undefined), 200, 0);
+    const full = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(u.id).first();
+    return json(await userPayload(env, full, undefined), 200, 0);
+  }
+
+  if (route === 'me/alerts' && req.method === 'POST') {
+    const u = await sessionUser(req, env);
+    if (!u) return json({ error: 'not signed in' }, 401, 0);
+    const on = !!(body && body.on);
+    if (on) {
+      // ensure an unsubscribe token exists before the first digest can go out
+      const row = await env.DB.prepare('SELECT unsub_token FROM users WHERE id = ?').bind(u.id).first();
+      const tok = (row && row.unsub_token) || randHex(16);
+      await env.DB.prepare('UPDATE users SET alerts = 1, unsub_token = ? WHERE id = ?').bind(tok, u.id).run();
+    } else {
+      await env.DB.prepare('UPDATE users SET alerts = 0 WHERE id = ?').bind(u.id).run();
+    }
+    return json({ ok: true, alerts: on }, 200, 0);
+  }
+
+  if (route === 'alerts/unsubscribe' && req.method === 'GET') {
+    const t = new URL(req.url).searchParams.get('u') || '';
+    if (/^[a-f0-9]{32}$/.test(t)) {
+      await env.DB.prepare('UPDATE users SET alerts = 0 WHERE unsub_token = ?').bind(t).run();
+    }
+    return new Response(null, { status: 302, headers: { 'Location': SITE + '#alerts=off', ...CORS } });
   }
 
   if (route === 'me/watchlist' && req.method === 'PUT') {
@@ -547,7 +577,51 @@ async function handleAuth(route, req, env, ctx) {
   return json({ error: 'not found' }, 404, 0);
 }
 
+// ---------- daily watchlist digest (Worker cron, weekdays 20:30 UTC) ----------
+// One email per opted-in verified user, only when a starred stock did something
+// noteworthy today: |price move| >= 5% or |combined-score change vs yesterday|
+// >= 0.05. Data comes from the pipeline's last-data.json (public, no vendor
+// re-serving concern: the digest goes to the user, not an API).
+async function sendDigests(env, ctx) {
+  if (!env.DB || !env.RESEND_API_KEY) return;
+  const r = await fetch(STATE_RAW + 'last-data.json');
+  if (!r.ok) return;
+  const by = {};
+  for (const d of await r.json()) by[d.ticker] = d;
+  const users = (await env.DB.prepare(
+    'SELECT u.id, u.email, u.unsub_token, w.tickers FROM users u JOIN watchlists w ON w.user_id = u.id WHERE u.alerts = 1 AND u.verified = 1'
+  ).all()).results || [];
+  for (const u of users) {
+    let list;
+    try { list = JSON.parse(u.tickers); } catch (e) { continue; }
+    const events = [];
+    for (const t of list) {
+      const d = by[t];
+      if (!d) continue;
+      const move = typeof d.dayChange === 'number' ? d.dayChange : null;
+      const sd = typeof d.scoreDelta === 'number' ? d.scoreDelta : null;
+      const notes = [];
+      if (move !== null && Math.abs(move) >= 5) notes.push((move > 0 ? '▲ up ' : '▼ down ') + Math.abs(move).toFixed(1) + '% today');
+      if (sd !== null && Math.abs(sd) >= 0.05) notes.push('score ' + (sd > 0 ? 'up' : 'down') + ' ' + Math.abs(sd).toFixed(2) + ' vs yesterday');
+      if (notes.length) events.push({ d, notes });
+    }
+    if (!events.length) continue;
+    const rows = events.map(({ d, notes }) => `
+      <tr><td style="padding:9px 0;border-bottom:1px solid #eef1f6"><b>${d.ticker}</b> <span style="color:#7d8595">${(d.name || '').slice(0, 28)}</span><br>
+      <span style="font-size:13px;color:#4c5566">${notes.join(' · ')}</span></td>
+      <td style="padding:9px 0;border-bottom:1px solid #eef1f6;text-align:right;white-space:nowrap">${d.price != null ? d.price : ''} <span style="color:${(d.dayChange || 0) >= 0 ? '#0ca30c' : '#d03b3b'}">${d.dayChange != null ? (d.dayChange >= 0 ? '+' : '') + d.dayChange.toFixed(1) + '%' : ''}</span></td></tr>`).join('');
+    const html = mailWrap(`<p style="margin:0 0 4px;font-size:17px;font-weight:700">Your watchlist today</p>
+      <p style="margin:6px 0 10px;color:#4c5566;font-size:13.5px">Stocks you follow that moved meaningfully — full picture on <a href="${SITE}#watchlist" style="color:#1e4f91">your watchlist</a>.</p>
+      <table style="width:100%;border-collapse:collapse;font-size:14.5px">${rows}</table>
+      <p style="font-size:12px;color:#7d8595;margin:14px 0 0">Mechanical screen, not investment advice. <a href="https://api.valuetally.com/alerts/unsubscribe?u=${u.unsub_token}" style="color:#7d8595">Unsubscribe from these alerts</a>.</p>`);
+    try { await sendMail(env, u.email, 'ValueTally watchlist: ' + events.map(e => e.d.ticker).slice(0, 4).join(', ') + (events.length > 4 ? '…' : ''), html); } catch (e) { /* next user */ }
+  }
+}
+
 export default {
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(sendDigests(env, ctx));
+  },
   async fetch(req, env, ctx) {
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
     const url = new URL(req.url);
@@ -561,7 +635,7 @@ export default {
       try { return await handleAdmin(route, req, env, ctx); }
       catch (e) { return json({ error: 'temporarily unavailable' }, 503, 0); }
     }
-    if (route.startsWith('auth/') || route === 'me' || route.startsWith('me/')) {
+    if (route.startsWith('auth/') || route === 'me' || route.startsWith('me/') || route.startsWith('alerts/')) {
       try { return await handleAuth(route, req, env, ctx); }
       catch (e) { return json({ error: 'temporarily unavailable' }, 503, 0); }
     }

@@ -3169,6 +3169,11 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
       B.innerHTML = `
         ${SESSION.verified ? '<div class="acct-sub">✓ Email confirmed</div>' : '<div class="acct-sub">Email not confirmed — check your inbox. <a id="amResend" style="color:var(--accent);cursor:pointer">Resend link</a></div>'}
         <div class="acct-sub">${STARS.size} starred ${STARS.size === 1 ? 'stock' : 'stocks'} synced.</div>
+        <label class="acct-sub" style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:10px 0 2px">
+          <input type="checkbox" id="amAlerts" ${SESSION.alerts ? 'checked' : ''} style="width:auto;margin:0">
+          Daily email when a watchlist stock moves ≥5% or its score shifts sharply
+        </label>
+        ${SESSION.verified ? '' : '<div class="acct-sub" style="font-size:11.5px">Alerts start once your email is confirmed.</div>'}
         <button class="acct-primary" id="amOut">Sign out</button>
         <button class="acct-danger" id="amDel">Delete my account and data</button>`;
       document.getElementById('amOut').onclick = async () => {
@@ -3177,6 +3182,15 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
       };
       const rs = document.getElementById('amResend');
       if (rs) rs.onclick = async () => { try { await api('/auth/resend-verify', { method: 'POST' }); say('ok', 'Sent — check your inbox.'); } catch(e){ say('err', 'Could not send just now.'); } };
+      const al = document.getElementById('amAlerts');
+      if (al) al.onchange = async () => {
+        try {
+          const r = await api('/me/alerts', { method: 'POST', body: JSON.stringify({ on: al.checked }) });
+          if (!r.ok) throw new Error();
+          SESSION.alerts = al.checked; saveSession();
+          say('ok', al.checked ? 'Alerts on — weekday evenings, only when something moved.' : 'Alerts off.');
+        } catch(e){ al.checked = !al.checked; say('err', 'Could not update alerts just now.'); }
+      };
       document.getElementById('amDel').onclick = async () => {
         if (!window.confirm('Delete your account? Your email and synced watchlist are permanently removed. The stars on this device are kept.')) return;
         try {
@@ -3233,7 +3247,7 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
       const r = await fetch(API_PROXY + path, { method: 'POST', body: JSON.stringify(body) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'failed');
-      SESSION = { token: d.token, email: d.email, verified: d.verified };
+      SESSION = { token: d.token, email: d.email, verified: d.verified, alerts: !!d.alerts };
       saveSession(); updateAcctBtn();
       // union-merge: keep everything from both sides, then server holds truth
       (d.watchlist || []).forEach(t => STARS.add(t));
@@ -3263,7 +3277,7 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
   // keep the signed-in state honest on load (expired session -> sign in again)
   if (SESSION){
     api('/me').then(r => r.ok ? r.json() : Promise.reject(r.status)).then(d => {
-      SESSION.verified = d.verified; saveSession(); updateAcctBtn();
+      SESSION.verified = d.verified; SESSION.alerts = !!d.alerts; saveSession(); updateAcctBtn();
       (d.watchlist || []).forEach(t => STARS.add(t)); saveLocal(); renderWatchlistView();
     }).catch(s => { if (s === 401){ SESSION = null; saveSession(); updateAcctBtn(); } });
   }
