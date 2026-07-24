@@ -12,7 +12,11 @@ market cap (US raised 50→300 on 2026-07-22, owner request; pool ~380 with reta
   issuance/renewal for the custom domain) — don't "fix" that. The workflow writes
   `pub/CNAME` = valuetally.com each publish (Pages reads it from the branch root;
   without it the custom domain detaches). harris120807.github.io/stock-dashboard
-  301-redirects to the domain. Owner still to do: register valuetally.co.uk/.uk defensively.
+  301-redirects to the domain. **Enforce HTTPS enabled 2026-07-24** (owner
+  ticked it in repo Settings → Pages; http:// now 301s — the "Not secure"
+  badge era is over). Favicon: the PWA icons are linked as `rel="icon"` in
+  refresh.py's wrapper AND admin.html (`/icon-192.png`).
+  Owner still to do: register valuetally.co.uk/.uk defensively.
 - **Artifact mirror** (may lag; optional publish target): https://claude.ai/code/artifact/d5987bbf-966d-431c-a4fd-d9a68c40059d
 - **Owner notifications**: ntfy.sh topic `harris-stockdash-3cb22f88` → owner's phone. **Never send test messages to it.**
 
@@ -284,14 +288,30 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   secrets; privileged calls send `Authorization: Bearer <ADMIN_KEY>`, which the
   Worker SHA-256-compares against Worker secret `ADMIN_KEY` (owner holds the
   key — handed over 2026-07-24; never commit it).
-- **Sections**: Status; Traffic (from `/admin/stats`); Kill-switches
-  (livePrices / fullRefresh / stockRefresh → Worker KV `flags`, namespace
-  `stockdash-config` id f7e94fe4cd224ded94bc270d659a238d, ~60s propagation,
-  fail-open); Visitor-requests grid (reads `requests-log.json` raw, tracked
-  badges, Add stages into the form); Add-stocks form (`SYMBOL` or `NATIVE:ADR`,
-  ≤20/submission → `/admin/add-tickers` → `add-tickers.yml` on main: validate,
+- **Layout (2026-07-24 evening)**: THREE tabs — **Overview** (Status; then a
+  two-column desktop grid ≥1000px in a 1240px container: Traffic | Run-pipelines
+  + Kill-switches), **Requests** (visitor cards left, add form right),
+  **Backtest** (per-horizon quintile charts + Run button). Run-pipelines card =
+  five dispatch buttons (hourly / analyst / analyst FULL seed / universe
+  rescreen / benchmarks behind a confirm since a re-anchor re-grades all
+  absolute scores). Kill-switches: livePrices / fullRefresh / stockRefresh →
+  Worker KV `flags`, namespace `stockdash-config` id
+  f7e94fe4cd224ded94bc270d659a238d, ~60s propagation, fail-open.
+- **Requests tab**: grid merges the durable log with ntfy's live ~12h cache
+  (same `TICK (#N)` title contract; NEW markers; 60s auto-refresh; TEST
+  filtered). Log timestamps are epoch SECONDS — normalize to ms before Date()
+  (shipped a 21-Jan-1970 bug). **Add** on a dotted native symbol calls
+  `/admin/adr-lookup` (Yahoo-search two-step: symbol→name→US-exchange
+  candidates; ranked listed > Y-ADR > F-line per the RHHBY trap) and stages a
+  suggested `NATIVE:ADR` pair with alternatives shown; genuinely ADR-less
+  names (MML.AX McLaren) say so and are currently NOT addable (native-only
+  escape hatch not built). Add-stocks form: `SYMBOL` or `NATIVE:ADR`,
+  ≤20/submission → `/admin/add-tickers` → `add-tickers.yml` on main (validate,
   append to pool, DEEPEN 5y backfill, push state, chain hourly refresh, ntfy;
   BARC/BCS + TEST hard-blocked in add_tickers.py).
+- **Extra admin routes** (beyond config/add-tickers/stats): `/admin/run`
+  (whitelisted workflow dispatch incl. `backtest`), `/admin/adr-lookup`,
+  `/admin/send-digests` (manual alerts-digest pass).
 - **Traffic (live since 2026-07-24 ~20:10 UTC)**: every Worker request logs an
   anonymous data point (route group + country, no IPs/UAs) to Analytics Engine
   dataset `stockdash_traffic` (binding `TRAFFIC`; owner enabled AE on the
@@ -317,13 +337,19 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   resend-verify, forgot → one-time 1h reset link (`#reset=TOKEN`; reset signs
   out all sessions), delete-account (full wipe — GDPR). Forgot always answers
   the same whether the account exists (no address probing).
-- **Email**: Resend, send-only API key as Worker secret `RESEND_API_KEY`;
-  `MAIL_FROM` secret is the sender — Resend test sender until valuetally.com
-  verifies in Resend (then switch to `ValueTally <account@valuetally.com>`).
-  In test mode Resend only delivers to the owner's address. NO tracking domain
-  (owner-agreed): auth links must not be rewritten.
+- **Email**: Resend; valuetally.com DOMAIN VERIFIED 2026-07-24, sender is
+  `ValueTally <account@valuetally.com>` (`MAIL_FROM` secret). The original
+  send-only key was rotated same-day; the replacement (full-access, owner
+  choice) is Worker secret `RESEND_API_KEY`. NO tracking domain (owner-agreed:
+  auth links must not be rewritten). Templates share the site-styled shell
+  (`mailWrap`/`mailBtn` in worker.js: light card, two-blue wordmark, accent
+  button — all styles inline). Replies to account@ currently BOUNCE — Cloudflare
+  Email Routing forward suggested, not yet set up.
 - **UI (template.html)**: header account button + modal (sign in/up/forgot/
-  reset/account states); Watchlist tab (`#watchlist` view): starred table
+  reset/account states) — the modal MUST be injected inside `.viz-root`
+  (theme vars + font live there, not on body; a body-level modal shipped as
+  unstyled serif soup once). Watchlist tab (`#watchlist` view): quick-add
+  search box (client-side name/ticker match, star from results), starred table
   (live-price aware) + system top/bottom-3 chips; star buttons in detail card
   and watchlist rows. Signed out = localStorage `vt-stars` (device-local);
   sign-in **union-merges** local+server then server is truth (write-through
@@ -355,10 +381,24 @@ edit: extract `<script>` contents, `node --check` them, then republish via
 - **Backtest**: `scripts/backtest.py` (STATE_DIR) → `backtest.json` on
   claude/state; `backtest.yml` on main (dispatch-only; PR #16); admin console
   Backtest tab renders per-horizon quintile bars + benchmark line + caveats,
-  Run button via /admin/run whitelist. Method: monthly samples, TODAY's ratios
-  price-scaled (reconstruction bias — flatters mean reversion), technicals
-  from closes, market-pool percentiles, survivorship-biased universe. First
-  run: Q5 +40% vs Q1 +13% vs bench +24% over 12m — present ONLY with caveats.
+  Run button via /admin/run whitelist. **5-year window since 2026-07-24
+  (owner request)**: SAMPLE_YEARS=5; the script fetches its OWN ~10y closes
+  from Yahoo at run time (range=10y, ~4 min for the pool; stored-shard
+  fallback per ticker) because stored shards cap at 5y and 5y of samples
+  needs a 6th forward year — shards deliberately unchanged. Method: monthly
+  samples, TODAY's ratios price-scaled (reconstruction bias — flatters mean
+  reversion), technicals from closes, market-pool percentiles,
+  survivorship-biased universe. 5y run (60 samples, 331 tickers): 12m
+  Q5 +38.9% / Q1 +10.4% / bench +22.4%, monotonic at every horizon — present
+  ONLY with caveats. NOTE: backtest.yml also commits backtest.json, so local
+  runs can conflict on rebase — regenerate or take the newer side.
+- **Hourly ntfy = status check (2026-07-24, owner request)**: body built in
+  refresh.py — ▲/▼ counts + avg move + biggest mover / score ups↑ downs↓ +
+  buy & sell lists / live-count + Finnhub-fallback health, plus a loud
+  "WATCHLIST CHANGED" line and the earnings-tomorrow previews. Title
+  "ValueTally hourly status" + valuetally.com click-through live in
+  hourly-refresh.yml (PR #17). Owner-approved replacement for the plain
+  "Refreshed" pulse.
 
 ## Multi-agent coordination
 
@@ -401,12 +441,24 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   ValueTally rebrand + valuetally.com + api.valuetally.com; live prices +
   stale banner + full-refresh button; US universe to 300.
 - 2026-07-24: scoring v5 (sector-relative), foreign-filter hardening, P/E
-  not-meaningful guard, scatter overhaul, history-depth audit (all complete).
+  not-meaningful guard, scatter overhaul, history-depth audit (all complete);
+  admin console (traffic analytics, kill-switches, ticker adds w/ ADR
+  auto-lookup, requests grid, pipeline buttons, three-tab layout); HTTPS
+  enforced + favicon; accounts (email+password, D1) + synced watchlists +
+  daily alert digests; Resend domain verified + site-styled emails; score-
+  history UI; Sectors tab; 5y quintile backtest; hourly ntfy → status check;
+  KPI additions (Advancing "by share price, not score" + Scores Improving).
 
 ## Open items (owner-side)
 
 - Rotate the OLD Finnhub key (it sat in template.html in public git history
   pre-2026-07-18) — needs updating in the GitHub secret + Worker secret.
+  STILL the oldest open item.
 - Register valuetally.co.uk / .uk defensively.
 - Finnhub commercial-licensing email still unanswered; monetization paused
   (also pending Barclays consent).
+- Cloudflare Email Routing forward for account@/support@ (replies to the
+  account sender currently bounce).
+- RESOLVED 2026-07-24: the Global API Key was rolled by the owner; deploys now
+  use a scoped Workers-edit token and analytics a scoped Analytics:Read token
+  (both owner-held, pasted in-session when needed — never committed).
