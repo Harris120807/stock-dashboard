@@ -301,6 +301,211 @@ async function handleRefresh(env, ctx) {
   return json({ ok: true, note: 'refresh started — fresh data publishes in ~2 minutes' }, 200, 0);
 }
 
+// ---------- accounts (2026-07-24, owner-requested email+password) ----------
+// D1 binding DB; Resend for verification/reset mail (secret RESEND_API_KEY,
+// MAIL_FROM switches from Resend's test sender to account@valuetally.com once
+// the domain is verified). Passwords stored as PBKDF2-SHA256 (210k iters,
+// per-user salt) — never plaintext. Sessions are 32-byte bearer tokens, 90d.
+// Rate limiting is D1-backed (strongly consistent, unlike KV).
+
+const SESSION_DAYS = 90;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const TICK_RE = /^[A-Z0-9.\-]{1,12}$/;
+
+const hex = b => [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
+const randHex = n => hex(crypto.getRandomValues(new Uint8Array(n)));
+
+async function pwHash(password, saltHex) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+  const salt = new Uint8Array(saltHex.match(/../g).map(h => parseInt(h, 16)));
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: 100000 }, key, 256);
+  return hex(bits);
+}
+
+// fixed-window rate limit in D1; true = allowed
+async function rateOk(env, key, limit, windowSec) {
+  const now = Math.floor(Date.now() / 1000);
+  const row = await env.DB.prepare('SELECT n, reset_at FROM attempts WHERE key = ?').bind(key).first();
+  if (!row || row.reset_at < now) {
+    await env.DB.prepare('INSERT INTO attempts (key, n, reset_at) VALUES (?, 1, ?) ON CONFLICT(key) DO UPDATE SET n = 1, reset_at = ?')
+      .bind(key, now + windowSec, now + windowSec).run();
+    return true;
+  }
+  if (row.n >= limit) return false;
+  await env.DB.prepare('UPDATE attempts SET n = n + 1 WHERE key = ?').bind(key).run();
+  return true;
+}
+
+async function sendMail(env, to, subject, html) {
+  const r = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + env.RESEND_API_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: env.MAIL_FROM || 'ValueTally <account@valuetally.com>', to: [to], subject, html }),
+  });
+  if (!r.ok) throw new Error('mail failed ' + r.status + ' ' + (await r.text()).slice(0, 200));
+}
+
+const mailWrap = body => `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;color:#16233a">
+  <h2 style="color:#1e4f91">ValueTally</h2>${body}
+  <p style="font-size:12px;color:#5b6b84;margin-top:24px">If you didn't request this, you can safely ignore this email.</p></div>`;
+
+async function sessionUser(req, env) {
+  const tok = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!/^[a-f0-9]{64}$/.test(tok)) return null;
+  const now = Math.floor(Date.now() / 1000);
+  return env.DB.prepare(
+    'SELECT u.id, u.email, u.verified, s.token FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ? AND s.expires_at > ?'
+  ).bind(tok, now).first();
+}
+
+async function issueSession(env, userId) {
+  const token = randHex(32);
+  const exp = Math.floor(Date.now() / 1000) + SESSION_DAYS * 86400;
+  await env.DB.prepare('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').bind(token, userId, exp).run();
+  return token;
+}
+
+async function userPayload(env, u, token) {
+  const w = await env.DB.prepare('SELECT tickers FROM watchlists WHERE user_id = ?').bind(u.id).first();
+  return { token, email: u.email, verified: !!u.verified, watchlist: w ? JSON.parse(w.tickers) : [] };
+}
+
+async function sendVerifyMail(env, userId, email) {
+  const t = randHex(24);
+  await env.DB.prepare('INSERT INTO tokens (token, user_id, kind, expires_at) VALUES (?, ?, ?, ?)')
+    .bind(t, userId, 'verify', Math.floor(Date.now() / 1000) + 172800).run();
+  await sendMail(env, email, 'Confirm your ValueTally email',
+    mailWrap(`<p>Tap the button to confirm this email address for your ValueTally account.</p>
+      <p><a href="https://api.valuetally.com/auth/verify?t=${t}" style="background:#1e4f91;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">Confirm email</a></p>`));
+}
+
+async function handleAuth(route, req, env, ctx) {
+  if (!env.DB) return json({ error: 'accounts not provisioned yet' }, 503, 0);
+  const ip = req.headers.get('CF-Connecting-IP') || 'unknown';
+  const body = req.method === 'POST' ? await req.json().catch(() => null) : null;
+  const email = body && String(body.email || '').trim().toLowerCase();
+
+  if (route === 'auth/signup' && req.method === 'POST') {
+    if (!email || !EMAIL_RE.test(email) || email.length > 254) return json({ error: 'enter a valid email address' }, 400, 0);
+    const pw = String((body && body.password) || '');
+    if (pw.length < 8) return json({ error: 'password must be at least 8 characters' }, 400, 0);
+    if (!(await rateOk(env, 'su:' + ip, 10, 3600))) return json({ error: 'too many attempts — try again later' }, 429, 0);
+    const exists = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first();
+    if (exists) return json({ error: 'an account with this email already exists — sign in instead' }, 409, 0);
+    const salt = randHex(16);
+    const hash = await pwHash(pw, salt);
+    const res = await env.DB.prepare('INSERT INTO users (email, pw_hash, salt) VALUES (?, ?, ?)').bind(email, hash, salt).run();
+    const uid = res.meta.last_row_id;
+    try { await sendVerifyMail(env, uid, email); } catch (e) { /* account still usable; resend available */ }
+    const token = await issueSession(env, uid);
+    return json(await userPayload(env, { id: uid, email, verified: 0 }, token), 200, 0);
+  }
+
+  if (route === 'auth/login' && req.method === 'POST') {
+    if (!email) return json({ error: 'enter your email' }, 400, 0);
+    if (!(await rateOk(env, 'li:' + ip + ':' + email, 10, 3600))) return json({ error: 'too many attempts — try again later' }, 429, 0);
+    const u = await env.DB.prepare('SELECT * FROM users WHERE email = ?').bind(email).first();
+    const ok = u && (await pwHash(String((body && body.password) || ''), u.salt)) === u.pw_hash;
+    if (!ok) return json({ error: 'wrong email or password' }, 401, 0);
+    const token = await issueSession(env, u.id);
+    return json(await userPayload(env, u, token), 200, 0);
+  }
+
+  if (route === 'auth/logout' && req.method === 'POST') {
+    const u = await sessionUser(req, env);
+    if (u) await env.DB.prepare('DELETE FROM sessions WHERE token = ?').bind(u.token).run();
+    return json({ ok: true }, 200, 0);
+  }
+
+  if (route === 'auth/verify' && req.method === 'GET') {
+    const t = new URL(req.url).searchParams.get('t') || '';
+    const now = Math.floor(Date.now() / 1000);
+    const row = await env.DB.prepare("SELECT user_id FROM tokens WHERE token = ? AND kind = 'verify' AND expires_at > ?").bind(t, now).first();
+    if (row) {
+      await env.DB.prepare('UPDATE users SET verified = 1 WHERE id = ?').bind(row.user_id).run();
+      await env.DB.prepare('DELETE FROM tokens WHERE token = ?').bind(t).run();
+    }
+    return new Response(null, { status: 302, headers: { 'Location': SITE + (row ? '#verified=1' : '#verified=0'), ...CORS } });
+  }
+
+  if (route === 'auth/resend-verify' && req.method === 'POST') {
+    const u = await sessionUser(req, env);
+    if (!u) return json({ error: 'not signed in' }, 401, 0);
+    if (u.verified) return json({ ok: true, note: 'already verified' }, 200, 0);
+    if (!(await rateOk(env, 'rv:' + u.id, 3, 3600))) return json({ error: 'too many attempts — try again later' }, 429, 0);
+    await sendVerifyMail(env, u.id, u.email);
+    return json({ ok: true }, 200, 0);
+  }
+
+  if (route === 'auth/forgot' && req.method === 'POST') {
+    if (!email) return json({ error: 'enter your email' }, 400, 0);
+    if (!(await rateOk(env, 'fp:' + ip, 5, 3600))) return json({ error: 'too many attempts — try again later' }, 429, 0);
+    const u = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first();
+    if (u) {
+      const t = randHex(24);
+      await env.DB.prepare('INSERT INTO tokens (token, user_id, kind, expires_at) VALUES (?, ?, ?, ?)')
+        .bind(t, u.id, 'reset', Math.floor(Date.now() / 1000) + 3600).run();
+      try {
+        await sendMail(env, email, 'Reset your ValueTally password',
+          mailWrap(`<p>Tap the button to choose a new password. This link works once and expires in an hour.</p>
+            <p><a href="${SITE}#reset=${t}" style="background:#1e4f91;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">Reset password</a></p>`));
+      } catch (e) { return json({ error: 'could not send the email — try again shortly' }, 502, 0); }
+    }
+    // same response whether or not the account exists (no address probing)
+    return json({ ok: true, note: 'if that address has an account, a reset link is on its way' }, 200, 0);
+  }
+
+  if (route === 'auth/reset' && req.method === 'POST') {
+    const t = String((body && body.token) || '');
+    const pw = String((body && body.password) || '');
+    if (pw.length < 8) return json({ error: 'password must be at least 8 characters' }, 400, 0);
+    const now = Math.floor(Date.now() / 1000);
+    const row = await env.DB.prepare("SELECT user_id FROM tokens WHERE token = ? AND kind = 'reset' AND expires_at > ?").bind(t, now).first();
+    if (!row) return json({ error: 'this reset link has expired — request a new one' }, 400, 0);
+    const salt = randHex(16);
+    const hash = await pwHash(pw, salt);
+    await env.DB.prepare('UPDATE users SET pw_hash = ?, salt = ?, verified = 1 WHERE id = ?').bind(hash, salt, row.user_id).run();
+    await env.DB.prepare('DELETE FROM tokens WHERE token = ?').bind(t).run();
+    await env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(row.user_id).run();   // sign out everywhere
+    const u = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(row.user_id).first();
+    const token = await issueSession(env, u.id);
+    return json(await userPayload(env, u, token), 200, 0);
+  }
+
+  if (route === 'auth/delete-account' && req.method === 'POST') {
+    const u = await sessionUser(req, env);
+    if (!u) return json({ error: 'not signed in' }, 401, 0);
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(u.id),
+      env.DB.prepare('DELETE FROM tokens WHERE user_id = ?').bind(u.id),
+      env.DB.prepare('DELETE FROM watchlists WHERE user_id = ?').bind(u.id),
+      env.DB.prepare('DELETE FROM users WHERE id = ?').bind(u.id),
+    ]);
+    return json({ ok: true, note: 'account and data deleted' }, 200, 0);
+  }
+
+  if (route === 'me' && req.method === 'GET') {
+    const u = await sessionUser(req, env);
+    if (!u) return json({ error: 'not signed in' }, 401, 0);
+    return json(await userPayload(env, u, undefined), 200, 0);
+  }
+
+  if (route === 'me/watchlist' && req.method === 'PUT') {
+    const u = await sessionUser(req, env);
+    if (!u) return json({ error: 'not signed in' }, 401, 0);
+    const list = body && body.tickers;
+    if (!Array.isArray(list) || list.length > 100 || !list.every(t => typeof t === 'string' && TICK_RE.test(t))) {
+      return json({ error: 'bad watchlist' }, 400, 0);
+    }
+    const uniq = [...new Set(list)];
+    await env.DB.prepare('INSERT INTO watchlists (user_id, tickers, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET tickers = ?, updated_at = ?')
+      .bind(u.id, JSON.stringify(uniq), Math.floor(Date.now() / 1000), JSON.stringify(uniq), Math.floor(Date.now() / 1000)).run();
+    return json({ ok: true, watchlist: uniq }, 200, 0);
+  }
+
+  return json({ error: 'not found' }, 404, 0);
+}
+
 export default {
   async fetch(req, env, ctx) {
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
@@ -313,6 +518,10 @@ export default {
     } catch (e) { /* analytics must never break serving */ }
     if (route.startsWith('admin')) {
       try { return await handleAdmin(route, req, env, ctx); }
+      catch (e) { return json({ error: 'temporarily unavailable' }, 503, 0); }
+    }
+    if (route.startsWith('auth/') || route === 'me' || route.startsWith('me/')) {
+      try { return await handleAuth(route, req, env, ctx); }
       catch (e) { return json({ error: 'temporarily unavailable' }, 503, 0); }
     }
     if (route === 'refresh' && req.method === 'POST') {

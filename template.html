@@ -288,6 +288,27 @@
   .detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
   .detail-id { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
   .detail-ticker { font-size: 22px; font-weight: 800; }
+  .star-btn { background: none; border: none; cursor: pointer; font-size: 21px; line-height: 1; padding: 0 2px; color: var(--text-muted); vertical-align: 1px; }
+  .star-btn.on { color: #e0a80c; }
+  .acct-overlay { position: fixed; inset: 0; background: rgba(6,10,18,.55); z-index: 240; display: none; align-items: center; justify-content: center; padding: 18px; }
+  .acct-overlay.show { display: flex; }
+  .acct-modal { background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px; padding: 20px; width: 100%; max-width: 380px; max-height: 90vh; overflow-y: auto; }
+  .acct-modal h3 { margin: 0 0 4px; color: var(--accent); }
+  .acct-modal .acct-sub { font-size: 12.5px; color: var(--text-muted); margin-bottom: 14px; }
+  .acct-modal input { width: 100%; padding: 10px; margin: 5px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--page); color: var(--text); font: inherit; }
+  .acct-modal .acct-primary { width: 100%; margin-top: 10px; padding: 11px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  .acct-modal .acct-primary:disabled { opacity: .5; }
+  .acct-links { display: flex; justify-content: space-between; margin-top: 12px; font-size: 13px; }
+  .acct-links a { color: var(--accent); cursor: pointer; text-decoration: none; }
+  .acct-msg { font-size: 13px; margin-top: 10px; min-height: 18px; white-space: pre-wrap; }
+  .acct-msg.err { color: var(--critical); } .acct-msg.ok { color: var(--good); }
+  .acct-danger { color: var(--critical); font-size: 12.5px; cursor: pointer; background: none; border: none; padding: 0; margin-top: 16px; }
+  #wlTable td, #wlTable th { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; font-size: 13.5px; white-space: nowrap; }
+  #wlTable td.num, #wlTable th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  #wlTable tbody tr { cursor: pointer; }
+  #wlTable tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+  .wl-chip { border: 1px solid var(--border); border-radius: 999px; padding: 5px 12px; font-size: 13px; cursor: pointer; }
+  .wl-chip.buy { color: var(--good); } .wl-chip.sell { color: var(--critical); }
   .detail-name { font-size: 14px; color: var(--text-secondary); }
   .detail-sector { display:flex; align-items:center; gap:6px; font-size: 12px; color: var(--text-muted); margin-top: 4px; }
   .detail-close {
@@ -668,7 +689,7 @@
         <div class="mkt-pill" id="mktPill" title="Regular trading hours by region (holidays not modeled)"></div>
       </div>
       <p>The largest US &amp; European stocks, scored on valuation, price trend and analyst sentiment.</p>
-      <div class="meta asof-row"><span id="asof"></span><span class="live-dot" id="liveDot" style="display:none">live prices</span><button class="refresh-btn" id="fullRefreshBtn" title="Re-run the data pipeline for all stocks">&#8635; Full refresh</button><span class="meta" id="fullRefreshNote"></span></div>
+      <div class="meta asof-row"><span id="asof"></span><span class="live-dot" id="liveDot" style="display:none">live prices</span><button class="refresh-btn" id="fullRefreshBtn" title="Re-run the data pipeline for all stocks">&#8635; Full refresh</button><span class="meta" id="fullRefreshNote"></span><button class="refresh-btn" id="acctBtn" title="Account & watchlist sync"><svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;vertical-align:-2px"><circle cx="12" cy="8.2" r="3.6"/><path d="M5 19.4c1.5-3 4-4.5 7-4.5s5.5 1.5 7 4.5"/></svg> <span id="acctBtnLbl">Sign in</span></button></div>
       <div class="meta" id="sourceNote"></div>
     </header>
 
@@ -677,6 +698,7 @@
       <button class="nav-tab" data-view="table"><span class="nav-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M4 10.5h16M4 14.5h16"/></svg></span><span>Table</span></button>
       <button class="nav-tab" data-view="stock"><span class="nav-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.2"/><path d="M15.6 15.6L20 20"/></svg></span><span>Stocks</span></button>
       <button class="nav-tab" data-view="compare"><span class="nav-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l5-5.5 3.8 3L20 7"/><path d="M20 11V7h-4"/></svg></span><span>Compare</span></button>
+      <button class="nav-tab" data-view="watchlist"><span class="nav-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.6l2.2 4.6 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5L4.8 9.9l5-.7z"/></svg></span><span>Watchlist</span></button>
       <button class="nav-tab" data-view="requests"><span class="nav-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="6" width="17" height="12.5" rx="2"/><path d="M4.5 7.5l7.5 5.7 7.5-5.7"/></svg></span><span>Requests</span></button>
       <button class="nav-tab nav-info" id="navInfo" title="About the scores &amp; data"><span class="nav-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.4"/><path d="M12 11.2V16M12 8.2h.01"/></svg></span><span>Info</span></button>
     </nav>
@@ -801,6 +823,24 @@
     </div>
     </main>
 
+    <main class="view" id="view-watchlist">
+      <div class="card">
+        <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">My watchlist
+          <button class="refresh-btn" id="acctBtn2">Account</button></div>
+        <div class="section-sub" id="wlStatus"></div>
+        <div id="wlEmpty" style="display:none;padding:18px 4px;color:var(--text-muted)">
+          Nothing starred yet. Open any stock and tap the <b>☆ star</b> next to its ticker to follow it here.
+          Signed-out watchlists live on this device only — create an account to keep them across devices.
+        </div>
+        <div style="overflow-x:auto"><table id="wlTable" style="width:100%"><thead></thead><tbody></tbody></table></div>
+      </div>
+      <div class="card">
+        <div class="section-title">System picks</div>
+        <div class="section-sub">The screen's current mechanical top/bottom 3 by combined score — full context on the Overview page. Not advice.</div>
+        <div id="wlSystem" style="display:flex;gap:8px;flex-wrap:wrap;padding:4px 0"></div>
+      </div>
+    </main>
+
     <main class="view" id="view-requests">
       <div class="card req-card">
         <div class="section-title">Request a stock</div>
@@ -833,6 +873,7 @@
         <p><b>Absolute Score (0–100):</b> a complementary rating that does <b>not</b> depend on the peer set — each stock is judged against a <b>frozen snapshot of the wider US market</b> (a top-500 cross-section, rebuilt roughly yearly): valuation multiples vs the whole market's distribution (40%), business quality — margins, returns and leverage — vs its <b>own sector's</b> norms (30%), and the analyst view — consensus target upside and buy-recommendation share (30%). Bands: Strong ≥ 70 · Solid ≥ 55 · Mixed ≥ 40 · Stretched ≥ 25 · Weak below. A stock can be cheap relative to peers yet score poorly here (or vice versa) — the two views together are the point. In short: <b>the Value and Combined Scores grade on the curve; the Absolute Score grades against frozen market norms.</b></p>
         <h3>Where the data comes from</h3>
         <p>Prices, fundamentals and analyst data come from <b>Finnhub and Yahoo Finance</b>, refreshed roughly hourly on weekday market hours. Numbers can be delayed, stale over weekends, or occasionally wrong at the source; market caps, prices and multiples reflect the fetch time and drift intraday. Analyst consensus price targets are refreshed daily. Each stock's detail card shows its data freshness. European stocks are shown in their home-exchange currency — London prices are in <b>pence</b>.</p>
+        <p><b>Accounts &amp; privacy.</b> Accounts are optional — everything works without one. If you create one, we store your email address and a secure hash of your password (never the password itself), used only to sign you in and sync your watchlist. No tracking, no selling data, no marketing email. Delete your account and all its data any time from the account menu.</p>
         <h3>What's covered — and what isn't</h3>
         <p>A curated, growing pool of the <b>largest US and UK/European companies</b>: each week any new entrants to the top market-cap ranks are added, and once a stock is covered it stays covered. If a stock isn't here, it hasn't reached those ranks yet (or it's on our exclusion rules — e.g. secondary share lines). You can suggest additions on the Requests page.</p>
         <h3>For developers: free scores API</h3>
@@ -2239,6 +2280,7 @@ function renderDetailCard(d){
       <div>
         <div class="detail-id">
           <span class="detail-ticker">${d.ticker}</span>
+          <button class="star-btn${window.vtIsStarred && vtIsStarred(d.ticker) ? ' on' : ''}" data-star="${d.ticker}" title="Add to my watchlist" aria-label="Watchlist star">${window.vtIsStarred && vtIsStarred(d.ticker) ? '★' : '☆'}</button>
           <span class="detail-name">${d.name}</span>
           ${positionBadge(d.position)}
         </div>
@@ -2381,7 +2423,7 @@ function selectStock(ticker, opts){
 }
 
 // ---------- pages / router ----------
-const VIEWS = ['overview', 'table', 'stock', 'compare', 'requests'];
+const VIEWS = ['overview', 'table', 'stock', 'compare', 'watchlist', 'requests'];
 function showView(name){
   if (!VIEWS.includes(name)) name = 'overview';
   VIEWS.forEach(v => { const el = document.getElementById('view-' + v); if (el) el.classList.toggle('active', v === name); });
@@ -2760,6 +2802,7 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
       renderHeatStrip();
       const tv = document.getElementById('view-table');
       if (tv && tv.offsetParent !== null) renderBody();   // 383-row rerender only when the table is on screen
+      if (window.renderWatchlistView) renderWatchlistView();   // no-op unless the watchlist view is on screen
       const card = document.getElementById('detailCard');
       const wrap = document.getElementById('phWrap');
       if (card && card.classList.contains('open') && wrap){
@@ -2972,6 +3015,218 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
 })();
 
 // ---------- boot: apply the initial route once all listeners are attached ----------
+// ---------- accounts + personal watchlist (2026-07-24) ----------
+// Signed out: stars live in localStorage (vt-stars), device-local. Signed in:
+// the server copy (D1 via the Worker) is the source of truth; on sign-in the
+// local and server lists are union-merged so nothing is lost. Session token in
+// localStorage vt-session (90d server-side expiry).
+(function accounts(){
+  let SESSION = null;
+  try { SESSION = JSON.parse(localStorage.getItem('vt-session') || 'null'); } catch(e){}
+  let STARS = new Set();
+  try { STARS = new Set(JSON.parse(localStorage.getItem('vt-stars') || '[]')); } catch(e){}
+
+  const saveLocal = () => { try { localStorage.setItem('vt-stars', JSON.stringify([...STARS])); } catch(e){} };
+  const saveSession = () => { try { SESSION ? localStorage.setItem('vt-session', JSON.stringify(SESSION)) : localStorage.removeItem('vt-session'); } catch(e){} };
+  const api = (path, opts) => fetch(API_PROXY + path, { ...(opts||{}), headers: { ...((opts||{}).headers||{}), ...(SESSION ? { 'Authorization': 'Bearer ' + SESSION.token } : {}) } });
+
+  window.vtIsStarred = t => STARS.has(t);
+
+  function pushServer(){
+    if (!SESSION) return;
+    api('/me/watchlist', { method: 'PUT', body: JSON.stringify({ tickers: [...STARS] }) })
+      .then(r => { if (r.status === 401){ SESSION = null; saveSession(); updateAcctBtn(); } })
+      .catch(() => {});
+  }
+
+  window.vtToggleStar = function(t){
+    STARS.has(t) ? STARS.delete(t) : STARS.add(t);
+    saveLocal(); pushServer();
+    document.querySelectorAll(`[data-star="${t}"]`).forEach(b => {
+      const on = STARS.has(t);
+      b.classList.toggle('on', on); b.textContent = on ? '★' : '☆';
+    });
+    renderWatchlistView();
+  };
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-star]');
+    if (b){ e.stopPropagation(); vtToggleStar(b.getAttribute('data-star')); }
+  });
+
+  // ----- watchlist view -----
+  window.renderWatchlistView = function(){
+    const view = document.getElementById('view-watchlist');
+    if (!view || view.offsetParent === null) return;
+    const status = document.getElementById('wlStatus');
+    status.textContent = SESSION
+      ? `Synced to ${SESSION.email}` + (SESSION.verified ? '' : ' (email not confirmed yet)')
+      : 'Saved on this device — sign in to sync across devices.';
+    const rows = DATA.filter(d => STARS.has(d.ticker));
+    document.getElementById('wlEmpty').style.display = rows.length ? 'none' : '';
+    const table = document.getElementById('wlTable');
+    table.style.display = rows.length ? '' : 'none';
+    if (!rows.length) table.querySelector('tbody').innerHTML = '';
+    if (rows.length){
+      table.querySelector('thead').innerHTML = '<tr><th></th><th>Ticker</th><th>Name</th><th class="num">Price</th><th class="num">Today</th><th class="num">Value</th><th class="num">Combined</th><th>Absolute</th></tr>';
+      table.querySelector('tbody').innerHTML = rows.map(d => `
+        <tr data-goto="${d.ticker}">
+          <td><button class="star-btn on" data-star="${d.ticker}">★</button></td>
+          <td><b>${d.ticker}</b></td><td>${d.name}</td>
+          <td class="num">${fmtMoney(d, d.price)}</td>
+          <td class="num ${d.dayChange >= 0 ? 'pos' : 'neg'}">${d.dayChange !== null && d.dayChange !== undefined ? fmtPct(d.dayChange) : '—'}</td>
+          <td class="num">${d.valueScore !== null && d.valueScore !== undefined ? fmtNum(d.valueScore, 2) : '—'}</td>
+          <td class="num">${d.combinedScore !== null && d.combinedScore !== undefined ? fmtNum(d.combinedScore, 2) : '—'}</td>
+          <td>${d.absLabel || '—'}</td>
+        </tr>`).join('');
+      table.querySelectorAll('[data-goto]').forEach(tr => tr.addEventListener('click', e => {
+        if (e.target.closest('[data-star]')) return;   // star clicks unstar, they don't navigate
+        location.hash = tr.getAttribute('data-goto');
+      }));
+    }
+    const sys = document.getElementById('wlSystem');
+    const ranked = DATA.filter(d => d.combinedScore !== null && d.combinedScore !== undefined)
+      .sort((a, b) => b.combinedScore - a.combinedScore);
+    const buys = ranked.slice(0, 3), sells = ranked.slice(-3).reverse();
+    sys.innerHTML = '';
+    [...buys.map(d => ['buy', d]), ...sells.map(d => ['sell', d])].forEach(([cls, d]) => {
+      const c = document.createElement('button');
+      c.className = 'wl-chip ' + cls;
+      c.textContent = (cls === 'buy' ? '▲ ' : '▼ ') + d.ticker;
+      c.onclick = () => { location.hash = d.ticker; };
+      sys.appendChild(c);
+    });
+    if (!sys.children.length) sys.innerHTML = '<span class="section-sub">Pick data unavailable in this build.</span>';
+  };
+  document.addEventListener('viewchange', e => { if (e.detail === 'watchlist') renderWatchlistView(); });
+
+  // ----- modal -----
+  document.body.insertAdjacentHTML('beforeend', `
+    <div class="acct-overlay" id="acctOverlay">
+      <div class="acct-modal" role="dialog" aria-label="Account">
+        <h3 id="amTitle"></h3><div class="acct-sub" id="amSub"></div>
+        <div id="amBody"></div>
+        <div class="acct-msg" id="amMsg"></div>
+      </div>
+    </div>`);
+  const ov = document.getElementById('acctOverlay');
+  ov.addEventListener('click', e => { if (e.target === ov) ov.classList.remove('show'); });
+  const say = (cls, t) => { const m = document.getElementById('amMsg'); m.className = 'acct-msg ' + cls; m.textContent = t; };
+  const esc2 = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+  function updateAcctBtn(){
+    const l1 = document.getElementById('acctBtnLbl');
+    if (l1) l1.textContent = SESSION ? SESSION.email.split('@')[0] : 'Sign in';
+  }
+
+  function openModal(mode, extra){
+    say('', '');
+    const T = document.getElementById('amTitle'), S = document.getElementById('amSub'), B = document.getElementById('amBody');
+    if (mode === 'account' && SESSION){
+      T.textContent = 'Your account';
+      S.textContent = SESSION.email;
+      B.innerHTML = `
+        ${SESSION.verified ? '<div class="acct-sub">✓ Email confirmed</div>' : '<div class="acct-sub">Email not confirmed — check your inbox. <a id="amResend" style="color:var(--accent);cursor:pointer">Resend link</a></div>'}
+        <div class="acct-sub">${STARS.size} starred ${STARS.size === 1 ? 'stock' : 'stocks'} synced.</div>
+        <button class="acct-primary" id="amOut">Sign out</button>
+        <button class="acct-danger" id="amDel">Delete my account and data</button>`;
+      document.getElementById('amOut').onclick = async () => {
+        try { await api('/auth/logout', { method: 'POST' }); } catch(e){}
+        SESSION = null; saveSession(); updateAcctBtn(); ov.classList.remove('show'); renderWatchlistView();
+      };
+      const rs = document.getElementById('amResend');
+      if (rs) rs.onclick = async () => { try { await api('/auth/resend-verify', { method: 'POST' }); say('ok', 'Sent — check your inbox.'); } catch(e){ say('err', 'Could not send just now.'); } };
+      document.getElementById('amDel').onclick = async () => {
+        if (!window.confirm('Delete your account? Your email and synced watchlist are permanently removed. The stars on this device are kept.')) return;
+        try {
+          const r = await api('/auth/delete-account', { method: 'POST' });
+          if (!r.ok) throw new Error();
+          SESSION = null; saveSession(); updateAcctBtn(); ov.classList.remove('show'); renderWatchlistView();
+        } catch(e){ say('err', 'Delete failed — try again.'); }
+      };
+    } else if (mode === 'reset'){
+      T.textContent = 'Choose a new password';
+      S.textContent = 'This signs you back in everywhere.';
+      B.innerHTML = `<input type="password" id="amPw" placeholder="New password (8+ characters)" autocomplete="new-password">
+        <button class="acct-primary" id="amGo">Set password</button>`;
+      document.getElementById('amGo').onclick = () => submit('/auth/reset', { token: extra, password: document.getElementById('amPw').value });
+    } else if (mode === 'forgot'){
+      T.textContent = 'Reset your password';
+      S.textContent = "We'll email you a one-time reset link.";
+      B.innerHTML = `<input type="email" id="amEmail" placeholder="Email" autocomplete="email">
+        <button class="acct-primary" id="amGo">Email me a link</button>
+        <div class="acct-links"><a id="amToIn">Back to sign in</a></div>`;
+      document.getElementById('amGo').onclick = async () => {
+        const btn = document.getElementById('amGo'); btn.disabled = true;
+        try {
+          const r = await fetch(API_PROXY + '/auth/forgot', { method: 'POST', body: JSON.stringify({ email: document.getElementById('amEmail').value }) });
+          const d = await r.json();
+          say(r.ok ? 'ok' : 'err', d.note || d.error || 'Done.');
+        } catch(e){ say('err', 'Network problem — try again.'); }
+        btn.disabled = false;
+      };
+      document.getElementById('amToIn').onclick = () => openModal('signin');
+    } else {
+      const up = mode === 'signup';
+      T.textContent = up ? 'Create your account' : 'Sign in';
+      S.textContent = up ? 'Free — keeps your watchlist on every device.' : 'Welcome back.';
+      B.innerHTML = `<input type="email" id="amEmail" placeholder="Email" autocomplete="email">
+        <input type="password" id="amPw" placeholder="${up ? 'Password (8+ characters)' : 'Password'}" autocomplete="${up ? 'new-password' : 'current-password'}">
+        <button class="acct-primary" id="amGo">${up ? 'Create account' : 'Sign in'}</button>
+        <div class="acct-links">${up ? '<a id="amToIn">I have an account</a>' : '<a id="amToUp">Create an account</a><a id="amToFg">Forgot password?</a>'}</div>
+        ${up ? '<div class="acct-sub" style="margin-top:10px">Your email is stored only to sign you in and (if you choose later) send alerts. Delete your account any time from this menu.</div>' : ''}`;
+      document.getElementById('amGo').onclick = () => submit(up ? '/auth/signup' : '/auth/login', {
+        email: document.getElementById('amEmail').value, password: document.getElementById('amPw').value });
+      const a1 = document.getElementById('amToIn'); if (a1) a1.onclick = () => openModal('signin');
+      const a2 = document.getElementById('amToUp'); if (a2) a2.onclick = () => openModal('signup');
+      const a3 = document.getElementById('amToFg'); if (a3) a3.onclick = () => openModal('forgot');
+    }
+    ov.classList.add('show');
+  }
+
+  async function submit(path, body){
+    const btn = document.getElementById('amGo');
+    if (btn) btn.disabled = true;
+    say('', 'One moment…');
+    try {
+      const r = await fetch(API_PROXY + path, { method: 'POST', body: JSON.stringify(body) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'failed');
+      SESSION = { token: d.token, email: d.email, verified: d.verified };
+      saveSession(); updateAcctBtn();
+      // union-merge: keep everything from both sides, then server holds truth
+      (d.watchlist || []).forEach(t => STARS.add(t));
+      saveLocal(); pushServer();
+      say('ok', path.includes('signup') ? 'Account created — confirmation email on its way.' : 'Signed in.');
+      setTimeout(() => ov.classList.remove('show'), 900);
+      renderWatchlistView();
+    } catch(e){ say('err', e.message === 'failed' ? 'Something went wrong — try again.' : e.message); }
+    if (btn) btn.disabled = false;
+  }
+
+  const hook = id => { const b = document.getElementById(id); if (b) b.onclick = () => openModal(SESSION ? 'account' : 'signin'); };
+  hook('acctBtn'); hook('acctBtn2');
+  updateAcctBtn();
+
+  // deep links from emails: #reset=TOKEN (password form), #verified=1 (toast)
+  const h0 = (location.hash || '').slice(1);
+  if (h0.startsWith('reset=')){
+    history.replaceState(null, '', location.pathname + location.search);
+    openModal('reset', h0.slice(6));
+  } else if (h0.startsWith('verified')){
+    history.replaceState(null, '', location.pathname + location.search);
+    if (SESSION){ SESSION.verified = h0 === 'verified=1'; saveSession(); }
+    if (h0 === 'verified=1'){ openModal(SESSION ? 'account' : 'signin'); say('ok', 'Email confirmed — you are all set.'); }
+  }
+
+  // keep the signed-in state honest on load (expired session -> sign in again)
+  if (SESSION){
+    api('/me').then(r => r.ok ? r.json() : Promise.reject(r.status)).then(d => {
+      SESSION.verified = d.verified; saveSession(); updateAcctBtn();
+      (d.watchlist || []).forEach(t => STARS.add(t)); saveLocal(); renderWatchlistView();
+    }).catch(s => { if (s === 401){ SESSION = null; saveSession(); updateAcctBtn(); } });
+  }
+})();
+
 window.addEventListener('hashchange', applyHash);
 applyHash();
 </script>
