@@ -358,10 +358,15 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   unstyled serif soup once). Watchlist tab (`#watchlist` view): quick-add
   search box (client-side name/ticker match, star from results), starred table
   (live-price aware) + system top/bottom-3 chips; star buttons in detail card
-  and watchlist rows. Signed out = localStorage `vt-stars` (device-local);
-  sign-in **union-merges** local+server then server is truth (write-through
-  PUT on every toggle). Session in localStorage `vt-session`; 401 anywhere
-  clears it. Gate carries an "Accounts & privacy" paragraph — keep it honest
+  and watchlist rows. **Watchlists are SIGNED-IN ONLY (owner decision
+  2026-07-25)**: the D1 server copy is the only store — no device-local
+  stars, no union-merge (both existed 07-24→07-25 and were removed after the
+  merge surprised the owner). A signed-out star tap opens the sign-in modal;
+  the watchlist tab shows a sign-in prompt (`#wlSignedOut`, add-box hidden);
+  sign-in REPLACES STARS with the server list; sign-out/delete clears STARS
+  and repaints every star button (`repaintStars()`). Legacy `vt-stars`
+  localStorage is deleted on load. Write-through PUT on every toggle.
+  Session in localStorage `vt-session`; 401 anywhere clears it. Gate carries an "Accounts & privacy" paragraph — keep it honest
   with what's actually stored.
 - **Worker deploys now carry THREE bindings** (kv_namespace CONFIG,
   analytics_engine TRAFFIC, d1 DB) + keep_bindings secret_text; SIX secrets:

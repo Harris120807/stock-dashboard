@@ -296,8 +296,8 @@
   .acct-modal h3 { margin: 0 0 4px; color: var(--accent); }
   .acct-modal .acct-sub { font-size: 12.5px; color: var(--text-muted); margin-bottom: 14px; }
   .acct-modal input { width: 100%; padding: 10px; margin: 5px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--page); color: var(--text-primary); font: inherit; }
-  .acct-modal .acct-primary { width: 100%; margin-top: 10px; padding: 11px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
-  .acct-modal .acct-primary:disabled { opacity: .5; }
+  .acct-primary { width: 100%; margin-top: 10px; padding: 11px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  .acct-primary:disabled { opacity: .5; }
   .acct-links { display: flex; justify-content: space-between; margin-top: 12px; font-size: 13px; }
   .acct-links a { color: var(--accent); cursor: pointer; text-decoration: none; }
   .acct-msg { font-size: 13px; margin-top: 10px; min-height: 18px; white-space: pre-wrap; }
@@ -902,13 +902,16 @@
         <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">My watchlist
           <button class="refresh-btn" id="acctBtn2">Account</button></div>
         <div class="section-sub" id="wlStatus"></div>
-        <div style="position:relative;margin:8px 0 4px;max-width:420px">
+        <div id="wlSignedOut" style="display:none;padding:18px 4px;color:var(--text-muted)">
+          Watchlists need a free account, so yours follows you to any device.
+          <div style="margin-top:12px"><button class="acct-primary" id="wlSigninBtn" style="width:auto;padding:9px 22px">Sign in or create an account</button></div>
+        </div>
+        <div id="wlAddWrap" style="position:relative;margin:8px 0 4px;max-width:420px">
           <input id="wlAdd" class="wl-add-input" type="search" placeholder="+ Add a stock — type a name or ticker" autocomplete="off">
           <div id="wlAddResults" class="wl-add-results" style="display:none"></div>
         </div>
         <div id="wlEmpty" style="display:none;padding:18px 4px;color:var(--text-muted)">
           Nothing starred yet. Open any stock and tap the <b>☆ star</b> next to its ticker to follow it here.
-          Signed-out watchlists live on this device only — create an account to keep them across devices.
         </div>
         <div style="overflow-x:auto"><table id="wlTable" style="width:100%"><thead></thead><tbody></tbody></table></div>
       </div>
@@ -951,7 +954,7 @@
         <p><b>Absolute Score (0–100):</b> a complementary rating that does <b>not</b> depend on the peer set — each stock is judged against a <b>frozen snapshot of the wider US market</b> (a top-500 cross-section, rebuilt roughly yearly): valuation multiples vs the whole market's distribution (40%), business quality — margins, returns and leverage — vs its <b>own sector's</b> norms (30%), and the analyst view — consensus target upside and buy-recommendation share (30%). Bands: Strong ≥ 70 · Solid ≥ 55 · Mixed ≥ 40 · Stretched ≥ 25 · Weak below. A stock can be cheap relative to peers yet score poorly here (or vice versa) — the two views together are the point. In short: <b>the Value and Combined Scores grade on the curve; the Absolute Score grades against frozen market norms.</b></p>
         <h3>Where the data comes from</h3>
         <p>Prices, fundamentals and analyst data come from <b>Finnhub and Yahoo Finance</b>, refreshed roughly hourly on weekday market hours. Numbers can be delayed, stale over weekends, or occasionally wrong at the source; market caps, prices and multiples reflect the fetch time and drift intraday. Analyst consensus price targets are refreshed daily. Each stock's detail card shows its data freshness. European stocks are shown in their home-exchange currency — London prices are in <b>pence</b>.</p>
-        <p><b>Accounts &amp; privacy.</b> Accounts are optional — everything works without one. If you create one, we store your email address and a secure hash of your password (never the password itself), used only to sign you in and sync your watchlist. No tracking, no selling data, no marketing email. Delete your account and all its data any time from the account menu.</p>
+        <p><b>Accounts &amp; privacy.</b> Browsing needs no account; a free account is required only for the personal watchlist (so it can follow you across devices). If you create one, we store your email address and a secure hash of your password (never the password itself), used only to sign you in and keep your watchlist. No tracking, no selling data, no marketing email. Delete your account and all its data any time from the account menu.</p>
         <h3>What's covered — and what isn't</h3>
         <p>A curated, growing pool of the <b>largest US and UK/European companies</b>: each week any new entrants to the top market-cap ranks are added, and once a stock is covered it stays covered. If a stock isn't here, it hasn't reached those ranks yet (or it's on our exclusion rules — e.g. secondary share lines). You can suggest additions on the Requests page.</p>
         <h3>For developers: free scores API</h3>
@@ -3239,22 +3242,30 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
   render();
 })();
 
-// ---------- accounts + personal watchlist (2026-07-24) ----------
-// Signed out: stars live in localStorage (vt-stars), device-local. Signed in:
-// the server copy (D1 via the Worker) is the source of truth; on sign-in the
-// local and server lists are union-merged so nothing is lost. Session token in
-// localStorage vt-session (90d server-side expiry).
+// ---------- accounts + personal watchlist (2026-07-24; signed-in-only 07-25) ----------
+// Watchlists REQUIRE a signed-in account (owner decision 2026-07-25): the D1
+// server copy is the only store — no device-local stars. A signed-out star tap
+// opens the sign-in modal instead of toggling; sign-in REPLACES local state
+// with the server list (no union-merge). The legacy vt-stars localStorage key
+// is cleared on load. Session token in localStorage vt-session (90d expiry).
 (function accounts(){
   let SESSION = null;
   try { SESSION = JSON.parse(localStorage.getItem('vt-session') || 'null'); } catch(e){}
   let STARS = new Set();
-  try { STARS = new Set(JSON.parse(localStorage.getItem('vt-stars') || '[]')); } catch(e){}
+  try { localStorage.removeItem('vt-stars'); } catch(e){}  // pre-07-25 device-local stars
 
-  const saveLocal = () => { try { localStorage.setItem('vt-stars', JSON.stringify([...STARS])); } catch(e){} };
   const saveSession = () => { try { SESSION ? localStorage.setItem('vt-session', JSON.stringify(SESSION)) : localStorage.removeItem('vt-session'); } catch(e){} };
   const api = (path, opts) => fetch(API_PROXY + path, { ...(opts||{}), headers: { ...((opts||{}).headers||{}), ...(SESSION ? { 'Authorization': 'Bearer ' + SESSION.token } : {}) } });
 
   window.vtIsStarred = t => STARS.has(t);
+
+  // repaint every star button on the page to match STARS (used after sign-in/out)
+  function repaintStars(){
+    document.querySelectorAll('[data-star]').forEach(b => {
+      const on = STARS.has(b.getAttribute('data-star'));
+      b.classList.toggle('on', on); b.textContent = on ? '★' : '☆';
+    });
+  }
 
   function pushServer(){
     if (!SESSION) return;
@@ -3264,8 +3275,13 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
   }
 
   window.vtToggleStar = function(t){
+    if (!SESSION){
+      openModal('signin');
+      say('', 'Watchlists need a free account — sign in or create one to star stocks.');
+      return;
+    }
     STARS.has(t) ? STARS.delete(t) : STARS.add(t);
-    saveLocal(); pushServer();
+    pushServer();
     document.querySelectorAll(`[data-star="${t}"]`).forEach(b => {
       const on = STARS.has(t);
       b.classList.toggle('on', on); b.textContent = on ? '★' : '☆';
@@ -3284,9 +3300,12 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
     const status = document.getElementById('wlStatus');
     status.textContent = SESSION
       ? `Synced to ${SESSION.email}` + (SESSION.verified ? '' : ' (email not confirmed yet)')
-      : 'Saved on this device — sign in to sync across devices.';
-    const rows = DATA.filter(d => STARS.has(d.ticker));
-    document.getElementById('wlEmpty').style.display = rows.length ? 'none' : '';
+      : 'Your starred stocks, on every device you sign into.';
+    // signed out: no watchlist UI at all — just the sign-in prompt
+    document.getElementById('wlSignedOut').style.display = SESSION ? 'none' : '';
+    document.getElementById('wlAddWrap').style.display = SESSION ? '' : 'none';
+    const rows = SESSION ? DATA.filter(d => STARS.has(d.ticker)) : [];
+    document.getElementById('wlEmpty').style.display = (SESSION && !rows.length) ? '' : 'none';
     const table = document.getElementById('wlTable');
     table.style.display = rows.length ? '' : 'none';
     if (!rows.length) table.querySelector('tbody').innerHTML = '';
@@ -3393,7 +3412,8 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
         <button class="acct-danger" id="amDel">Delete my account and data</button>`;
       document.getElementById('amOut').onclick = async () => {
         try { await api('/auth/logout', { method: 'POST' }); } catch(e){}
-        SESSION = null; saveSession(); updateAcctBtn(); ov.classList.remove('show'); renderWatchlistView();
+        SESSION = null; saveSession(); STARS = new Set(); repaintStars();
+        updateAcctBtn(); ov.classList.remove('show'); renderWatchlistView();
       };
       const rs = document.getElementById('amResend');
       if (rs) rs.onclick = async () => { try { await api('/auth/resend-verify', { method: 'POST' }); say('ok', 'Sent — check your inbox.'); } catch(e){ say('err', 'Could not send just now.'); } };
@@ -3407,11 +3427,12 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
         } catch(e){ al.checked = !al.checked; say('err', 'Could not update alerts just now.'); }
       };
       document.getElementById('amDel').onclick = async () => {
-        if (!window.confirm('Delete your account? Your email and synced watchlist are permanently removed. The stars on this device are kept.')) return;
+        if (!window.confirm('Delete your account? Your email and watchlist are permanently removed.')) return;
         try {
           const r = await api('/auth/delete-account', { method: 'POST' });
           if (!r.ok) throw new Error();
-          SESSION = null; saveSession(); updateAcctBtn(); ov.classList.remove('show'); renderWatchlistView();
+          SESSION = null; saveSession(); STARS = new Set(); repaintStars();
+          updateAcctBtn(); ov.classList.remove('show'); renderWatchlistView();
         } catch(e){ say('err', 'Delete failed — try again.'); }
       };
     } else if (mode === 'reset'){
@@ -3464,9 +3485,9 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
       if (!r.ok) throw new Error(d.error || 'failed');
       SESSION = { token: d.token, email: d.email, verified: d.verified, alerts: !!d.alerts };
       saveSession(); updateAcctBtn();
-      // union-merge: keep everything from both sides, then server holds truth
-      (d.watchlist || []).forEach(t => STARS.add(t));
-      saveLocal(); pushServer();
+      // the server list IS the watchlist — no local state to merge
+      STARS = new Set(d.watchlist || []);
+      repaintStars();
       say('ok', path.includes('signup') ? 'Account created — confirmation email on its way.' : 'Signed in.');
       setTimeout(() => ov.classList.remove('show'), 900);
       renderWatchlistView();
@@ -3475,7 +3496,7 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
   }
 
   const hook = id => { const b = document.getElementById(id); if (b) b.onclick = () => openModal(SESSION ? 'account' : 'signin'); };
-  hook('acctBtn'); hook('acctBtn2');
+  hook('acctBtn'); hook('acctBtn2'); hook('wlSigninBtn');
   updateAcctBtn();
 
   // deep links from emails: #reset=TOKEN (password form), #verified=1 (toast)
@@ -3493,7 +3514,7 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
   if (SESSION){
     api('/me').then(r => r.ok ? r.json() : Promise.reject(r.status)).then(d => {
       SESSION.verified = d.verified; SESSION.alerts = !!d.alerts; saveSession(); updateAcctBtn();
-      (d.watchlist || []).forEach(t => STARS.add(t)); saveLocal(); renderWatchlistView();
+      STARS = new Set(d.watchlist || []); repaintStars(); renderWatchlistView();
     }).catch(s => { if (s === 401){ SESSION = null; saveSession(); updateAcctBtn(); } });
   }
 })();
