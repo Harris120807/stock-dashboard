@@ -200,8 +200,10 @@ async function loadRequests() {
         });
       } catch (e2) {}
     });
+    // pipeline log stores epoch SECONDS; live cache entries above use ISO strings
+    const toMs = v => typeof v === 'number' ? v * 1000 : (Date.parse(v) || 0);
     const rows = Object.entries(by)
-      .sort((a, b) => (b[1].count - a[1].count) || String(b[1].lastAt).localeCompare(String(a[1].lastAt)));
+      .sort((a, b) => (b[1].count - a[1].count) || (toMs(b[1].lastAt) - toMs(a[1].lastAt)));
     $('reqMsg').textContent = fresh ? fresh + ' new since the last pipeline run — grid refreshes every minute.' : '';
     $('reqMsg').className = 'msg ok';
     grid.innerHTML = '';
@@ -209,7 +211,8 @@ async function loadRequests() {
     for (const [t, info] of rows) {
       const tile = document.createElement('div');
       tile.className = 'req-tile';
-      const last = info.lastAt ? new Date(info.lastAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '';
+      const ms = typeof info.lastAt === 'number' ? info.lastAt * 1000 : Date.parse(info.lastAt);
+      const last = ms ? new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '';
       const b = document.createElement('b'); b.textContent = t;
       const meta = document.createElement('div'); meta.className = 'meta';
       meta.textContent = (info.fresh ? 'NEW · ' : '') + info.count + '× requested' + (last ? ' · last ' + last : '');
