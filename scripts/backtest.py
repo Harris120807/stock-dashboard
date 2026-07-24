@@ -21,21 +21,55 @@ import datetime
 import json
 import os
 import statistics
+import time
+import urllib.request
 
 STATE = os.environ.get("STATE_DIR", "state")
 HORIZONS = {"1m": 21, "3m": 63, "6m": 126, "12m": 252}
 METRICS = ("pe", "pb", "ps", "evEbitda")  # lower = cheaper; price-scaled
+SAMPLE_YEARS = 5           # how far back the month-samples go
+UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
 records = json.load(open(f"{STATE}/last-data.json"))
+
+
+def fetch_deep(ticker):
+    """~10y of daily closes straight from Yahoo. The stored shards cap at 5y
+    (right for the site), but 5 years of SAMPLES need a 6th year of forward
+    returns — so this dispatch-only job fetches its own deeper series."""
+    url = ("https://query1.finance.yahoo.com/v8/finance/chart/"
+           f"{urllib.request.quote(ticker)}?range=10y&interval=1d")
+    try:
+        req = urllib.request.Request(url, headers=UA)
+        res = json.load(urllib.request.urlopen(req, timeout=25))["chart"]["result"][0]
+        ts = res.get("timestamp") or []
+        cl = res["indicators"]["quote"][0]["close"]
+        t, p = [], []
+        for tt, cc in zip(ts, cl):
+            if cc is not None:
+                t.append(tt // 86400)
+                p.append(cc)
+        return {"t": t, "p": p} if len(t) > 300 else None
+    except Exception:
+        return None
+
+
 shards = {}
 for d in records:
     t = d["ticker"]
-    try:
-        h = json.load(open(f"{STATE}/history/{t.replace('/', '_')}.json"))
-        if h.get("t") and len(h["t"]) > 300:
-            shards[t] = h
-    except Exception:
-        continue
+    h = fetch_deep(t)
+    time.sleep(0.25)
+    if h is None:
+        # Yahoo hiccup — fall back to the stored 5y shard so the ticker still
+        # contributes to the recent samples rather than vanishing entirely
+        try:
+            h = json.load(open(f"{STATE}/history/{t.replace('/', '_')}.json"))
+            if not (h.get("t") and len(h["t"]) > 300):
+                h = None
+        except Exception:
+            h = None
+    if h:
+        shards[t] = h
 
 # month-end sample points on the calendar of the longest series, skipping the
 # final year so every sample has a full 12m forward window
@@ -48,7 +82,9 @@ for dn in all_dn:
         month_ends.append(dn)  # first trading day of each month ~ month boundary
 month_ends = month_ends[1:]
 last_dn = all_dn[-1]
-samples = [dn for dn in month_ends if dn <= last_dn - 370]  # need 252td ~ 365cd
+# window: SAMPLE_YEARS of monthly samples, each with a full 12m forward window
+samples = [dn for dn in month_ends
+           if last_dn - (SAMPLE_YEARS * 365 + 370) <= dn <= last_dn - 370]
 
 def sma(closes, n):
     return sum(closes[-n:]) / n if len(closes) >= n else None
@@ -155,7 +191,7 @@ out = {
         }
         for hz in HORIZONS
     },
-    "caveats": "Reconstructed fundamentals (today's ratios price-scaled), survivorship bias (today's universe), equal weight, no dividends/costs. Rough sanity check only.",
+    "caveats": "5-year sample window (10y prices fetched at run time). Reconstructed fundamentals (today's ratios price-scaled), survivorship bias (today's universe), equal weight, no dividends/costs. Rough sanity check only.",
 }
 json.dump(out, open(f"{STATE}/backtest.json", "w"), indent=1)
 print(f"backtest: {n_samples} month-samples, {len(shards)} tickers; 12m Q5={out['horizons']['12m']['quintiles']['5']}% Q1={out['horizons']['12m']['quintiles']['1']}% bench={out['horizons']['12m']['benchmark']}%")
