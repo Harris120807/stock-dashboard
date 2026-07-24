@@ -21,6 +21,9 @@
     --series-7: #e87ba4; /* Industrials */
     --series-8: #eb6834; /* Consumer Cyclical */
     --series-9: #0d9aa8; /* Payment Processors */
+    --series-10: #8a6d3b;
+    --series-11: #7f3fbf;
+    --series-12: #6b7f2e;
     --good: #0ca30c;
     --warning: #fab219;
     --critical: #d03b3b;
@@ -47,6 +50,9 @@
       --series-7: #d55181;
       --series-8: #d95926;
       --series-9: #2ab3c2;
+      --series-10: #a98a53;
+      --series-11: #9b63d3;
+      --series-12: #8a9c46;
       --good: #0ca30c;
       --warning: #fab219;
       --critical: #d03b3b;
@@ -66,7 +72,7 @@
       --brand-tip:      #74d4f7;
       --series-1: #3987e5; --series-2: #199e70; --series-3: #c98500; --series-4: #008300;
       --series-5: #9085e9; --series-6: #e66767; --series-7: #d55181; --series-8: #d95926;
-      --series-9: #2ab3c2;
+      --series-9: #2ab3c2; --series-10: #a98a53; --series-11: #9b63d3; --series-12: #8a9c46;
   }
   :root[data-theme="light"] .viz-root {
       --surface-1:      #fbfcfe;
@@ -81,7 +87,7 @@
       --brand-tip:      #3fa3dd;
       --series-1: #2a78d6; --series-2: #1baf7a; --series-3: #eda100; --series-4: #008300;
       --series-5: #4a3aa7; --series-6: #e34948; --series-7: #e87ba4; --series-8: #eb6834;
-      --series-9: #0d9aa8;
+      --series-9: #0d9aa8; --series-10: #8a6d3b; --series-11: #7f3fbf; --series-12: #6b7f2e;
   }
 
   * { box-sizing: border-box; }
@@ -143,6 +149,8 @@
   .section-title { font-size: 14px; font-weight: 700; margin: 0 0 2px; }
   .section-sub { font-size: 12px; color: var(--text-secondary); margin: 0 0 14px; }
 
+  .scatter-controls { display: flex; gap: 10px; align-items: center; margin: 8px 0 2px; flex-wrap: wrap; }
+  .sec-hi { font-size: 12px; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-1); color: var(--text-primary); max-width: 240px; }
   /* legend */
   .legend { display: flex; flex-wrap: wrap; gap: 10px 16px; margin-top: 10px; }
   .legend-item { display:flex; align-items:center; gap:6px; font-size: 12px; color: var(--text-secondary); }
@@ -682,7 +690,11 @@
     <div class="grid-2">
       <div class="card">
         <div class="section-title">Value Score vs. Analyst-Implied Upside</div>
-        <div class="section-sub">X: fundamentals-based value score (right = cheaper multiples). Y: % upside to average analyst target. Bubble size = market cap.</div>
+        <div class="section-sub">X: fundamentals-based value score (right = cheaper multiples). Y: % upside to average analyst target. Bubble size = market cap. Shows the 150 largest by default.</div>
+        <div class="scatter-controls">
+          <span class="ph-range" id="scatterN"><button data-n="150" class="on">Top 150</button><button data-n="all">All</button></span>
+          <select class="sec-hi" id="secHi" aria-label="Highlight a sector"></select>
+        </div>
         <svg id="scatter" viewBox="0 0 760 480" preserveAspectRatio="xMidYMid meet"></svg>
         <div class="legend" id="scatterLegend"></div>
       </div>
@@ -856,7 +868,10 @@ const BUILT_AT = /*__BUILT__*/null; // unix seconds, injected by the build pipel
 // count: the 8 categories with the most companies each get a validated hue;
 // single-company categories (still shown by name everywhere in the UI) share
 // a neutral "Other" swatch rather than inventing a 9th+ hue.
-const SECTOR_COLOR = {
+// Colors are assigned to whatever groups the pipeline marked (top-12 by count),
+// so the legend can never advertise a group that has no bubbles. Familiar groups
+// keep their long-standing colors; new ones take free palette slots by size.
+const PREFERRED_COLOR = {
   "Financial Services & Banking": "var(--series-1)",
   "Payment Processors": "var(--series-9)",
   "Semiconductors": "var(--series-2)",
@@ -867,7 +882,22 @@ const SECTOR_COLOR = {
   "Energy": "var(--series-7)",
   "Aerospace & Defense": "var(--series-8)",
 };
-const SECTOR_ORDER = [...Object.keys(SECTOR_COLOR), "Other"];
+const SECTOR_COLOR = {};
+let SECTOR_ORDER = [];
+(function assignSectorColors(){
+  const counts = {};
+  DATA.forEach(d => { if (d.colorGroup && d.colorGroup !== 'Other') counts[d.colorGroup] = (counts[d.colorGroup] || 0) + 1; });
+  const groups = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+  const used = new Set();
+  groups.forEach(g => { if (PREFERRED_COLOR[g]){ SECTOR_COLOR[g] = PREFERRED_COLOR[g]; used.add(PREFERRED_COLOR[g]); } });
+  let n = 1;
+  groups.forEach(g => {
+    if (SECTOR_COLOR[g]) return;
+    while (used.has('var(--series-' + n + ')') && n <= 12) n++;
+    if (n <= 12){ SECTOR_COLOR[g] = 'var(--series-' + n + ')'; used.add('var(--series-' + n + ')'); }
+  });
+  SECTOR_ORDER = [...groups.filter(g => SECTOR_COLOR[g]), 'Other'];
+})();
 function sectorColor(group){ return SECTOR_COLOR[group] || 'var(--text-muted)'; }
 
 function resolveVar(v){
@@ -1246,6 +1276,8 @@ function drawNews(d){
 }
 
 let selectedSector = null; // sector-legend filter (null = show all)
+let hiSector = null;       // true-sector highlight from the dropdown (any of the ~38 sectors)
+let scatterTopN = 150;     // 'all' shows the whole universe; default keeps the chart readable
 
 // ---------- Scatter ----------
 // Charts measure their own container's real pixel width and use a matching
@@ -1303,8 +1335,16 @@ function renderScatter(){
     svgHtml += `<text class="quad-label" x="${M.left+4}" y="${M.top+plotH-6}" text-anchor="start">Expensive &amp; muted outlook</text>`;
   }
 
-  const bubbles = DATA.filter(d=>d.upside!==null && d.upside!==undefined)
+  const scatterMatch = d => selectedSector ? d.colorGroup === selectedSector : hiSector ? d.sector === hiSector : false;
+  let bubbles = DATA.filter(d=>d.upside!==null && d.upside!==undefined)
     .sort((a,b)=> b.marketCap - a.marketCap);
+  if (scatterTopN !== 'all'){
+    const cut = bubbles.slice(0, scatterTopN);
+    // an active sector filter pulls ALL its members in, even below the size cut
+    bubbles = (selectedSector || hiSector)
+      ? [...new Set([...cut, ...bubbles.filter(scatterMatch)])].sort((a,b)=> b.marketCap - a.marketCap)
+      : cut;
+  }
 
   bubbles.forEach(d => {
     svgHtml += `<circle class="bubble" data-t="${d.ticker}" cx="${X(d.valueScore)}" cy="${Y(d.upside)}" r="${R(d.marketCap)}" fill="${sectorColor(d.colorGroup)}" fill-opacity="0.82" />`;
@@ -1326,20 +1366,41 @@ function renderScatter(){
 
   // clickable legend: click a sector to filter the chart and table, click again to clear
   const leg = document.getElementById('scatterLegend');
-  leg.innerHTML = SECTOR_ORDER.map(s => `<div class="legend-item${selectedSector === s ? ' sel' : ''}" data-sector="${s}"><span class="legend-swatch" style="background:${sectorColor(s)}"></span>${s === 'Other' ? 'Other (single-company sectors)' : s}</div>`).join('');
+  leg.innerHTML = SECTOR_ORDER.map(s => `<div class="legend-item${selectedSector === s ? ' sel' : ''}" data-sector="${s}"><span class="legend-swatch" style="background:${sectorColor(s)}"></span>${s === 'Other' ? 'Other sectors' : s}</div>`).join('');
   leg.classList.toggle('filtering', !!selectedSector);
   leg.querySelectorAll('.legend-item').forEach(el => el.addEventListener('click', () => {
     const s = el.getAttribute('data-sector');
     selectedSector = selectedSector === s ? null : s;
+    hiSector = null;
+    const hs = document.getElementById('secHi'); if (hs) hs.value = '';
     renderScatter(); renderBody(); renderHeatStrip();
   }));
-  if (selectedSector){
+  if (selectedSector || hiSector){
     svg.querySelectorAll('.bubble').forEach(el => {
       const dd = DATA.find(x => x.ticker === el.getAttribute('data-t'));
-      el.style.opacity = dd && dd.colorGroup === selectedSector ? '' : '0.12';
+      el.style.opacity = dd && scatterMatch(dd) ? '' : '0.12';
     });
   }
 }
+// scatter controls (bound once): size toggle + true-sector highlight dropdown
+(function scatterControls(){
+  const sel = document.getElementById('secHi');
+  if (!sel) return;
+  const counts = {};
+  DATA.forEach(d => { if (d.sector) counts[d.sector] = (counts[d.sector] || 0) + 1; });
+  sel.innerHTML = '<option value="">Highlight sector…</option>' +
+    Object.keys(counts).sort().map(x => `<option value="${x}">${x} (${counts[x]})</option>`).join('');
+  sel.addEventListener('change', () => {
+    hiSector = sel.value || null;
+    if (hiSector) selectedSector = null;
+    renderScatter(); renderBody(); renderHeatStrip();
+  });
+  document.querySelectorAll('#scatterN button').forEach(b => b.addEventListener('click', () => {
+    scatterTopN = b.getAttribute('data-n') === 'all' ? 'all' : 150;
+    document.querySelectorAll('#scatterN button').forEach(x => x.classList.toggle('on', x === b));
+    renderScatter();
+  }));
+})();
 renderScatter();
 
 // ---------- sector heat strip (average day change per sector) ----------
@@ -1359,6 +1420,8 @@ function renderHeatStrip(){
   strip.querySelectorAll('.heat-chip').forEach(el => el.addEventListener('click', () => {
     const sec = el.getAttribute('data-sector');
     selectedSector = selectedSector === sec ? null : sec;
+    hiSector = null;
+    const hs = document.getElementById('secHi'); if (hs) hs.value = '';
     renderScatter(); renderBody(); renderHeatStrip();
   }));
 }

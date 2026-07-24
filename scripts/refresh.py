@@ -331,10 +331,10 @@ MERGE = {"Financial Services": "Financial Services & Banking", "Banking": "Finan
 FORCE_GROUPS = {"Payment Processors"}
 from collections import Counter
 groups = Counter(MERGE.get(d["sector"], d["sector"]) for d in records if d["sector"])
-top8 = {g for g, _ in groups.most_common(8)}
+top_groups = {g for g, _ in groups.most_common(12)}   # 12 colored groups at 334 tickers (was 8 at 83)
 for d in records:
     g = MERGE.get(d["sector"], d["sector"])
-    d["colorGroup"] = g if (g in top8 or g in FORCE_GROUPS) else "Other"
+    d["colorGroup"] = g if (g in top_groups or g in FORCE_GROUPS) else "Other"
 
 # ---------- frozen benchmark anchors (shared by value + absolute scores) ----------
 try:
