@@ -12,7 +12,11 @@ market cap (US raised 50→300 on 2026-07-22, owner request; pool ~380 with reta
   issuance/renewal for the custom domain) — don't "fix" that. The workflow writes
   `pub/CNAME` = valuetally.com each publish (Pages reads it from the branch root;
   without it the custom domain detaches). harris120807.github.io/stock-dashboard
-  301-redirects to the domain. Owner still to do: register valuetally.co.uk/.uk defensively.
+  301-redirects to the domain. **Enforce HTTPS enabled 2026-07-24** (owner
+  ticked it in repo Settings → Pages; http:// now 301s — the "Not secure"
+  badge era is over). Favicon: the PWA icons are linked as `rel="icon"` in
+  refresh.py's wrapper AND admin.html (`/icon-192.png`).
+  Owner still to do: register valuetally.co.uk/.uk defensively.
 - **Artifact mirror** (may lag; optional publish target): https://claude.ai/code/artifact/d5987bbf-966d-431c-a4fd-d9a68c40059d
 - **Owner notifications**: ntfy.sh topic `harris-stockdash-3cb22f88` → owner's phone. **Never send test messages to it.**
 
@@ -36,7 +40,6 @@ no Claude sessions in the loop:
 | `weekly-universe.yml` | `scripts/weekly_universe.py` | `0 11 * * 1` | `universe.json` (US core = top 300 since 2026-07-22; screens 1000 deep) + 5y `history/` deepen for new entrants (backfill_history.py DEEPEN=1: any shard <1000 pts gets a 5y refetch, score series preserved, no-op when the fetch is no deeper — so entrants get full lifetime history the day they join; audited 2026-07-24: all 334 shards complete, the only short series are genuine recent IPOs/spinoffs stored back to their first trading day); ntfy only on membership change |
 | `daily-analyst.yml` | `scripts/daily_analyst.py` | `0 12 * * 1-5` | `analyst-state.json`, `news-state.json`, `fundamentals-state.json` (profile2+metric+refPrice prefetch — see hourly note). **Weekday rotation (2026-07-22)**: each run fetches the Finnhub bundle for a stable md5-bucket fifth of the universe (+ any ticker new to analyst-state, same-day) and carries the rest forward; news additionally refreshes daily for the 50 largest; Yahoo targets daily for ALL. `FULL=1` (workflow_dispatch input `full`) seeds everything (~45 min) |
 | `hourly-refresh.yml` | `scripts/refresh.py` | GitHub cron thinned to backup-sentinel `45 9,15 * * 1-5` (2026-07-22) — cron-job.org is primary at the full `45 7-19 * * 1-5` cadence; the workflow's dedup step skips duplicate slots | `claude/pages` (index.html + detail-data.json + `pwa/` + CNAME), `watchlist-state.json`, `last-data.json`, `price-history.json`, `history/` shards, `requests-log.json`, ntfy push. **Yahoo-only since 2026-07-22**: prices/charts/FX from Yahoo; fundamentals read from `fundamentals-state.json` (daily prefetch), marketCap scaled by price drift vs `refPrice`; Finnhub hit per ticker only as fallback (bootstrap/new entrant/failed Yahoo) — keeps the shared 60/min budget for the page's refresh buttons. Charts are incremental: range=5d stitched onto stored `price-history-long.json`; full 2y refetch Mondays or when stored <260 days; if the 5d overlap disagrees >3% on 2+ days (Yahoo split/dividend rewrite) the ticker resyncs from 5y and REPLACES its stored price series (score series kept). Long history is SHARDED one file per ticker in `history/{T}.json` (2026-07-22; slashes→underscores), each shard written only when a durable change lands (new daily close/score point) — readers: refresh.py `lh_read`, template `fetchLongHistory(t)`, Worker score-history, backfill_history.py (MIGRATE=1 splits a legacy single file). **Page payload split (2026-07-22)**: index.html embeds slim records; breakdowns/technicals/earnings-detail ship in `detail-data.json` beside it (lazy-fetched on first card open; contract = refresh.py DETAIL_FIELDS ↔ template fetchDetail). Per-run live-Finnhub fallback capped at 25 tickers (FALLBACK_CAP). Watchlist requires ≥2 scored valuation metrics AND ≥2 indicator components (thin-data guard — excludes brand-new listings until they have trend data). **Data-quality guards (2026-07-24)**: trailing P/E is nulled (with PEG) when pe>400 or eps≤0 (not-meaningful — e.g. Bloom Energy); `last-data.json` is pruned to the current universe (no ghost tickers); earnings-calendar reporting-currency guard per Finnhub traps below |
-| `add-tickers.yml` | `scripts/add_tickers.py` | dispatch-only (admin console) | Owner-initiated universe additions: validates `SYMBOL` / `NATIVE:ADR` entries (Yahoo price + Finnhub profile2 checks, dupe detection, BARC/BCS + TEST hard-blocked), appends to the append-only pool, DEEPEN-backfills 5y history, pushes `claude/state`, chains an hourly-refresh dispatch, ntfy-notifies the outcome |
 
 **cron-job.org (primary scheduler, owner's account)**: job 8110348 "Dashboard
 hourly refresh" (45 7-19 UTC Mon-Fri, extended to UK/EU hours 2026-07-21) and
@@ -46,7 +49,7 @@ workflow-dispatch API. Managed via `api.cron-job.org` (Bearer auth; PATCH
 public repo — the owner holds it and pastes it in-session when schedule changes
 are needed (last provided 2026-07-21).
 
-All scheduled workflows support `workflow_dispatch` for manual runs. Scripts read `FINNHUB_API_KEY`,
+All three support `workflow_dispatch` for manual runs. Scripts read `FINNHUB_API_KEY`,
 `STATE_DIR` (checkout of `claude/state`), `OUT_DIR`; they only write files — the
 workflow steps do the git pushes and the ntfy notification (from `OUT_DIR/notify.txt`).
 
@@ -225,10 +228,6 @@ edit: extract `<script>` contents, `node --check` them, then republish via
 - **New-listing/spinoff notes**: detail card explains missing indicators for
   young listings (no 200d SMA yet) and missing valuation for fresh spinoffs
   (e.g. HONA — no standalone financials published yet). Don't "fix" those blanks.
-- **Kill-switch handling (2026-07-24)**: `/prices` returning `{disabled:true}`
-  stops the live poller for that page load; `/quote`/`/metric` disabled → detail
-  card says "live refresh is currently switched off"; `/refresh` 403 shows the
-  owner-disabled message. Flags come from the admin console (below).
 - **Stock requests page** POSTs to public ntfy topic `harris-stockdash-req-a2962152`
   (deliberately separate from the private pipeline topic — it's spam-exposed by
   design; owner subscribes to it read-only). Client-side throttle: 15s double-submit cooldown only (daily caps removed 2026-07-18 once search went through the proxy)
@@ -255,30 +254,6 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   `_phlShards` cache); only 30D comes from `price-history.json`. Compare-page
   series shorter than the range = the stock IPO'd recently, not missing data.
 
-## Admin console (2026-07-24, owner-requested)
-
-- **valuetally.com/admin** — `admin.html` on `claude/state`, published to
-  `/admin/index.html` each refresh. Static + key-gated: the page holds NO secrets;
-  every privileged call sends `Authorization: Bearer <ADMIN_KEY>` to the Worker,
-  which SHA-256-compares against the Worker secret `ADMIN_KEY` (owner holds the
-  key; never commit it).
-- **Sections**: Status (last refresh/universe/watchlist), Traffic (daily charts +
-  per-route table from `/admin/stats`, 7d/30d), Kill-switches (livePrices /
-  fullRefresh / stockRefresh — Worker KV `flags`, ~60s propagation, fail-open),
-  Visitor requests grid (reads `requests-log.json` raw; tracked badges; Add
-  stages a ticker into the form), Add-stocks form (`SYMBOL` or `NATIVE:ADR`,
-  ≤20/submission, client-side format preview → `/admin/add-tickers` →
-  `add-tickers.yml`).
-- **Worker admin routes**: `/admin/ping` (login check), `/admin/config` GET/POST
-  (KV binding `CONFIG`, namespace `stockdash-config`), `/admin/add-tickers`
-  (dispatches the workflow via GH_TOKEN), `/admin/stats` (Analytics Engine SQL
-  API; needs Worker secret `CF_ANALYTICS_TOKEN`). Admin responses are `no-store`.
-- **Traffic logging**: every Worker request writes an anonymous data point
-  (route group + country, no IPs/UAs) to Analytics Engine dataset
-  `stockdash_traffic` (binding `TRAFFIC`). Deploys must keep bindings:
-  `keep_bindings: ["secret_text"]` PLUS re-declare the `kv_namespace` and
-  `analytics_engine` bindings in metadata.
-
 ## Cloudflare (client API proxy)
 
 - **Custom domain (2026-07-22)**: the Worker is mounted at `api.valuetally.com` (Workers custom domain on the owner's valuetally.com zone, id c0e0bf4b6284c2f2f072b792da1a898a); the page's `API_PROXY` points there. The workers.dev URL keeps working as a fallback.
@@ -297,14 +272,133 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   only the dashboard's own derived metrics (scores/positions/watchlist) — never
   re-serve raw vendor fields (prices, P/E, fundamentals) through it without a
   data license.** Deploy: REST upload with `keep_bindings: ["secret_text"]` so
-  Worker secrets survive script updates (FOUR Worker secrets now:
-  `FINNHUB_API_KEY`, `GH_TOKEN`, `ADMIN_KEY`, `CF_ANALYTICS_TOKEN` — re-set all
-  after a full re-provision).
+  Worker secrets survive script updates (FOUR Worker secrets: `FINNHUB_API_KEY`,
+  `GH_TOKEN`, `ADMIN_KEY`, `CF_ANALYTICS_TOKEN` — re-set all after a full
+  re-provision).
 - **`/prices` (2026-07-22)**: live-quote endpoint for the page's 45s poller — ONE
   batched Yahoo spark sweep of the whole universe (chunked 20 symbols/request:
   spark 400s above 20), 30s edge cache, so upstream cost is ~2 sweeps/min
   globally regardless of visitors. `/refresh` (POST) dispatches hourly-refresh.yml
   via the GH_TOKEN PAT.
+
+## Admin console (2026-07-24, owner-requested)
+
+- **valuetally.com/admin** — `admin.html` on `claude/state`, published to
+  `/admin/index.html` each refresh. Static + key-gated: the page holds NO
+  secrets; privileged calls send `Authorization: Bearer <ADMIN_KEY>`, which the
+  Worker SHA-256-compares against Worker secret `ADMIN_KEY` (owner holds the
+  key — handed over 2026-07-24; never commit it).
+- **Layout (2026-07-24 evening)**: THREE tabs — **Overview** (Status; then a
+  two-column desktop grid ≥1000px in a 1240px container: Traffic | Run-pipelines
+  + Kill-switches), **Requests** (visitor cards left, add form right),
+  **Backtest** (per-horizon quintile charts + Run button). Run-pipelines card =
+  five dispatch buttons (hourly / analyst / analyst FULL seed / universe
+  rescreen / benchmarks behind a confirm since a re-anchor re-grades all
+  absolute scores). Kill-switches: livePrices / fullRefresh / stockRefresh →
+  Worker KV `flags`, namespace `stockdash-config` id
+  f7e94fe4cd224ded94bc270d659a238d, ~60s propagation, fail-open.
+- **Requests tab**: grid merges the durable log with ntfy's live ~12h cache
+  (same `TICK (#N)` title contract; NEW markers; 60s auto-refresh; TEST
+  filtered). Log timestamps are epoch SECONDS — normalize to ms before Date()
+  (shipped a 21-Jan-1970 bug). **Add** on a dotted native symbol calls
+  `/admin/adr-lookup` (Yahoo-search two-step: symbol→name→US-exchange
+  candidates; ranked listed > Y-ADR > F-line per the RHHBY trap) and stages a
+  suggested `NATIVE:ADR` pair with alternatives shown; genuinely ADR-less
+  names (MML.AX McLaren) say so and are currently NOT addable (native-only
+  escape hatch not built). Add-stocks form: `SYMBOL` or `NATIVE:ADR`,
+  ≤20/submission → `/admin/add-tickers` → `add-tickers.yml` on main (validate,
+  append to pool, DEEPEN 5y backfill, push state, chain hourly refresh, ntfy;
+  BARC/BCS + TEST hard-blocked in add_tickers.py).
+- **Extra admin routes** (beyond config/add-tickers/stats): `/admin/run`
+  (whitelisted workflow dispatch incl. `backtest`), `/admin/adr-lookup`,
+  `/admin/send-digests` (manual alerts-digest pass).
+- **Traffic (live since 2026-07-24 ~20:10 UTC)**: every Worker request logs an
+  anonymous data point (route group + country, no IPs/UAs) to Analytics Engine
+  dataset `stockdash_traffic` (binding `TRAFFIC`; owner enabled AE on the
+  account). `/admin/stats` queries it via the AE SQL API using Worker secret
+  `CF_ANALYTICS_TOKEN` — a SCOPED token (Account Analytics:Read only) the owner
+  created for this; the classifier had (correctly) refused storing the Global
+  API Key. Counts exist only from the enable date forward. Deploy metadata must
+  re-declare BOTH bindings (kv_namespace CONFIG + analytics_engine TRAFFIC)
+  alongside `keep_bindings: ["secret_text"]`.
+- **Template kill-switch handling**: `/prices` `{disabled:true}` stops the live
+  poller for that page load; disabled `/quote`//`metric` → "live refresh is
+  currently switched off" in the detail card; `/refresh` 403 shows the
+  owner-disabled message.
+
+## Accounts (2026-07-24, owner-requested email+password)
+
+- **Stack**: Worker routes `/auth/*`, `/me`, `/me/watchlist` + **D1** database
+  `valuetally` (uuid f6e7639b-133d-4ecf-88d6-d7e006756833, binding `DB`; schema
+  in `worker/schema.sql`: users/sessions/tokens/watchlists/attempts). Passwords
+  = PBKDF2-SHA256 100k iters + per-user salt (never plaintext); sessions = 64-hex
+  bearer tokens, 90d; rate limiting is D1-backed (attempts table). Flows:
+  signup (verify email), login, logout, verify (302 → site `#verified=1`),
+  resend-verify, forgot → one-time 1h reset link (`#reset=TOKEN`; reset signs
+  out all sessions), delete-account (full wipe — GDPR). Forgot always answers
+  the same whether the account exists (no address probing).
+- **Email**: Resend; valuetally.com DOMAIN VERIFIED 2026-07-24, sender is
+  `ValueTally <account@valuetally.com>` (`MAIL_FROM` secret). The original
+  send-only key was rotated same-day; the replacement (full-access, owner
+  choice) is Worker secret `RESEND_API_KEY`. NO tracking domain (owner-agreed:
+  auth links must not be rewritten). Templates share the site-styled shell
+  (`mailWrap`/`mailBtn` in worker.js: light card, two-blue wordmark, accent
+  button — all styles inline). Replies to account@ currently BOUNCE — Cloudflare
+  Email Routing forward suggested, not yet set up.
+- **UI (template.html)**: header account button + modal (sign in/up/forgot/
+  reset/account states) — the modal MUST be injected inside `.viz-root`
+  (theme vars + font live there, not on body; a body-level modal shipped as
+  unstyled serif soup once). Watchlist tab (`#watchlist` view): quick-add
+  search box (client-side name/ticker match, star from results), starred table
+  (live-price aware) + system top/bottom-3 chips; star buttons in detail card
+  and watchlist rows. Signed out = localStorage `vt-stars` (device-local);
+  sign-in **union-merges** local+server then server is truth (write-through
+  PUT on every toggle). Session in localStorage `vt-session`; 401 anywhere
+  clears it. Gate carries an "Accounts & privacy" paragraph — keep it honest
+  with what's actually stored.
+- **Worker deploys now carry THREE bindings** (kv_namespace CONFIG,
+  analytics_engine TRAFFIC, d1 DB) + keep_bindings secret_text; SIX secrets:
+  FINNHUB_API_KEY, GH_TOKEN, ADMIN_KEY, CF_ANALYTICS_TOKEN, RESEND_API_KEY,
+  MAIL_FROM. Body parsing covers POST **and PUT**; CORS allows GET/POST/PUT.
+- Owner signed up in-session with a TEMP password that appeared in chat — they
+  were told to reset it via the emailed link immediately.
+
+## Alerts / score history / sectors / backtest (2026-07-24 evening batch)
+
+- **Watchlist email digest**: Worker cron `30 20 * * 1-5` (schedules API) →
+  `sendDigests`: opted-in verified users (users.alerts=1, unsub_token) get ONE
+  email listing starred stocks with |dayChange|≥5% or |scoreDelta|≥0.05; no
+  events = no email. Toggle in the account modal (`POST /me/alerts`);
+  one-click `GET /alerts/unsubscribe?u=TOKEN`. Manual trigger:
+  `POST /admin/send-digests`. scoreDelta is computed BEFORE the last-data.json
+  dump in refresh.py specifically so the digest can read it there.
+- **Score history UI**: score overlay now on 30d/1Y/5Y detail charts; Compare's
+  "Combined Score" metric supports the 1Y range = FULL daily score history from
+  shards (short lines = tracking began July 2026).
+- **Sectors view**: `#sectors` tab (8 tabs now — icon-only labels <480px):
+  per-sector cards (median P/E, median combined, avg day move, top-3 chips),
+  click to expand full member list. Pure client-side from DATA.
+- **Backtest**: `scripts/backtest.py` (STATE_DIR) → `backtest.json` on
+  claude/state; `backtest.yml` on main (dispatch-only; PR #16); admin console
+  Backtest tab renders per-horizon quintile bars + benchmark line + caveats,
+  Run button via /admin/run whitelist. **5-year window since 2026-07-24
+  (owner request)**: SAMPLE_YEARS=5; the script fetches its OWN ~10y closes
+  from Yahoo at run time (range=10y, ~4 min for the pool; stored-shard
+  fallback per ticker) because stored shards cap at 5y and 5y of samples
+  needs a 6th forward year — shards deliberately unchanged. Method: monthly
+  samples, TODAY's ratios price-scaled (reconstruction bias — flatters mean
+  reversion), technicals from closes, market-pool percentiles,
+  survivorship-biased universe. 5y run (60 samples, 331 tickers): 12m
+  Q5 +38.9% / Q1 +10.4% / bench +22.4%, monotonic at every horizon — present
+  ONLY with caveats. NOTE: backtest.yml also commits backtest.json, so local
+  runs can conflict on rebase — regenerate or take the newer side.
+- **Hourly ntfy = status check (2026-07-24, owner request)**: body built in
+  refresh.py — ▲/▼ counts + avg move + biggest mover / score ups↑ downs↓ +
+  buy & sell lists / live-count + Finnhub-fallback health, plus a loud
+  "WATCHLIST CHANGED" line and the earnings-tomorrow previews. Title
+  "ValueTally hourly status" + valuetally.com click-through live in
+  hourly-refresh.yml (PR #17). Owner-approved replacement for the plain
+  "Refreshed" pulse.
 
 ## Multi-agent coordination
 
@@ -332,8 +426,7 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   post-Yahoo-only (~2.5 min hourly at 334 tickers; the old ~150-ticker tiered-
   refresh trigger is obsolete). Corning/SK-Hynix-ADR were evaluated and fall
   outside the cutoffs; Rolls-Royce (RR.L) is in. **Never add Barclays (BARC)**
-  — standing owner rule (also enforced in add_tickers.py); monetization is also
-  paused pending Barclays consent.
+  — standing owner rule; monetization is also paused pending Barclays consent.
 
 ## History
 
@@ -349,15 +442,23 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   stale banner + full-refresh button; US universe to 300.
 - 2026-07-24: scoring v5 (sector-relative), foreign-filter hardening, P/E
   not-meaningful guard, scatter overhaul, history-depth audit (all complete);
-  admin console (traffic analytics, kill-switches, ticker adds, requests grid).
+  admin console (traffic analytics, kill-switches, ticker adds w/ ADR
+  auto-lookup, requests grid, pipeline buttons, three-tab layout); HTTPS
+  enforced + favicon; accounts (email+password, D1) + synced watchlists +
+  daily alert digests; Resend domain verified + site-styled emails; score-
+  history UI; Sectors tab; 5y quintile backtest; hourly ntfy → status check;
+  KPI additions (Advancing "by share price, not score" + Scores Improving).
 
 ## Open items (owner-side)
 
 - Rotate the OLD Finnhub key (it sat in template.html in public git history
   pre-2026-07-18) — needs updating in the GitHub secret + Worker secret.
+  STILL the oldest open item.
 - Register valuetally.co.uk / .uk defensively.
 - Finnhub commercial-licensing email still unanswered; monetization paused
   (also pending Barclays consent).
-- Replace the Cloudflare Global API Key in the Worker secret with a scoped
-  API token (Analytics:Read only) once created — global key was provided
-  2026-07-24 to unblock the admin-console deploy.
+- Cloudflare Email Routing forward for account@/support@ (replies to the
+  account sender currently bounce).
+- RESOLVED 2026-07-24: the Global API Key was rolled by the owner; deploys now
+  use a scoped Workers-edit token and analytics a scoped Analytics:Read token
+  (both owner-held, pasted in-session when needed — never committed).
