@@ -218,6 +218,13 @@ def build_record(ticker, sym):
             if d["lo52"] and (d["lo52"] > price * 50 or d["lo52"] < price / 50): d["lo52"] = None
             if d["eps"] and abs(d["eps"]) > price * 20:
                 d["eps"] = round(price / d["pe"], 4) if (d["pe"] and d["pe"] > 0) else None
+    # Near-zero or negative trailing earnings make trailing P/E meaningless —
+    # Bloom Energy showed 10,509x on ~2¢ of EPS while epsTTM was negative.
+    # >400x or loss-making TTM -> not meaningful, show blank (PEG likewise).
+    # Mirror: refreshStock in template.html — change both together.
+    if d["pe"] and (d["pe"] > 400 or (d["eps"] is not None and d["eps"] <= 0)):
+        d["pe"] = None
+        d["peg"] = None
     # analyst consensus target: daily Yahoo fetch stored in analyst-state (native
     # trading units), falling back to the static US baseline dict. Ratio guards
     # catch Yahoo's occasional pounds-vs-pence flips on London names.

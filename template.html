@@ -2038,6 +2038,8 @@ async function refreshStock(ticker){
     const dev = num(m['totalDebt/totalEquityQuarterly']); if (dev !== null) d.de = dev * 100;
     if (d.adr){ d.eps = (num(d.pe) && d.pe > 0) ? d.price / d.pe : d.eps; }
     else { const e = num(m.epsTTM); if (e !== null && Math.abs(e) <= d.price * 20) d.eps = e; }
+    // near-zero/negative TTM earnings: trailing P/E not meaningful (mirror of refresh.py)
+    if (d.pe && (d.pe > 400 || (d.eps !== null && d.eps !== undefined && d.eps <= 0))){ d.pe = null; d.peg = null; }
     recomputeDerived(d);
     d.refreshedAt = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
     d.dataSource = 'Finnhub (live)';
