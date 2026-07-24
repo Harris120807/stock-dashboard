@@ -337,6 +337,29 @@ edit: extract `<script>` contents, `node --check` them, then republish via
 - Owner signed up in-session with a TEMP password that appeared in chat — they
   were told to reset it via the emailed link immediately.
 
+## Alerts / score history / sectors / backtest (2026-07-24 evening batch)
+
+- **Watchlist email digest**: Worker cron `30 20 * * 1-5` (schedules API) →
+  `sendDigests`: opted-in verified users (users.alerts=1, unsub_token) get ONE
+  email listing starred stocks with |dayChange|≥5% or |scoreDelta|≥0.05; no
+  events = no email. Toggle in the account modal (`POST /me/alerts`);
+  one-click `GET /alerts/unsubscribe?u=TOKEN`. Manual trigger:
+  `POST /admin/send-digests`. scoreDelta is computed BEFORE the last-data.json
+  dump in refresh.py specifically so the digest can read it there.
+- **Score history UI**: score overlay now on 30d/1Y/5Y detail charts; Compare's
+  "Combined Score" metric supports the 1Y range = FULL daily score history from
+  shards (short lines = tracking began July 2026).
+- **Sectors view**: `#sectors` tab (8 tabs now — icon-only labels <480px):
+  per-sector cards (median P/E, median combined, avg day move, top-3 chips),
+  click to expand full member list. Pure client-side from DATA.
+- **Backtest**: `scripts/backtest.py` (STATE_DIR) → `backtest.json` on
+  claude/state; `backtest.yml` on main (dispatch-only; PR #16); admin console
+  Backtest tab renders per-horizon quintile bars + benchmark line + caveats,
+  Run button via /admin/run whitelist. Method: monthly samples, TODAY's ratios
+  price-scaled (reconstruction bias — flatters mean reversion), technicals
+  from closes, market-pool percentiles, survivorship-biased universe. First
+  run: Q5 +40% vs Q1 +13% vs bench +24% over 12m — present ONLY with caveats.
+
 ## Multi-agent coordination
 
 - **Lanes**: (1) UI/template → `template.html` on `claude/state`; (2) scoring/pipeline →
