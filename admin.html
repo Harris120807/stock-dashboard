@@ -155,17 +155,42 @@ $('logoutBtn').onclick = () => { localStorage.removeItem('vt-admin-key'); locati
 function loadAll() { loadStatus(); loadConfig(); loadStats(); loadRequests(); }
 
 const REQ_LOG = 'https://raw.githubusercontent.com/Harris120807/stock-dashboard/claude/state/requests-log.json';
+const REQ_TOPIC = 'harris-stockdash-req-a2962152';
 
 async function loadRequests() {
   const grid = $('reqGrid');
   try {
-    const [log, scores] = await Promise.all([
-      fetch(REQ_LOG, { cache: 'no-cache' }).then(r => r.json()),
+    const [log, scores, cacheText] = await Promise.all([
+      fetch(REQ_LOG, { cache: 'no-cache' }).then(r => r.json()).catch(() => ({ byTicker: {} })),
       fetch(API + '/api/scores').then(r => r.json()).catch(() => ({ stocks: [] })),
+      // ntfy's ~12h message cache: requests the pipeline hasn't logged yet
+      fetch('https://ntfy.sh/' + REQ_TOPIC + '/json?poll=1&since=all').then(r => r.ok ? r.text() : '').catch(() => ''),
     ]);
     const tracked = new Set((scores.stocks || []).map(s => s.ticker));
-    const rows = Object.entries(log.byTicker || {})
+    const by = {};
+    for (const [t, v] of Object.entries(log.byTicker || {})) by[t] = { ...v };
+    // merge cache entries newer than the log's last poll (same title contract
+    // as the requests page / refresh.py — TICK (#N) pairs)
+    const lastPoll = log.lastPollAt || 0;
+    let fresh = 0;
+    cacheText.split('\n').forEach(ln => {
+      try {
+        const ev = JSON.parse(ln);
+        if (ev.event !== 'message' || (ev.time || 0) <= lastPoll) return;
+        if (!(ev.title || '').startsWith('Stock request')) return;
+        const at = new Date((ev.time || 0) * 1000).toISOString();
+        [...(ev.title || '').matchAll(/([A-Z0-9.\-]{1,12}) \(#\d+\)/g)].forEach(m => {
+          const t = m[1];
+          if (t === 'TEST') return;
+          if (!by[t]) by[t] = { count: 0, firstAt: at, lastAt: at };
+          by[t].count++; by[t].lastAt = at; by[t].fresh = true; fresh++;
+        });
+      } catch (e2) {}
+    });
+    const rows = Object.entries(by)
       .sort((a, b) => (b[1].count - a[1].count) || String(b[1].lastAt).localeCompare(String(a[1].lastAt)));
+    $('reqMsg').textContent = fresh ? fresh + ' new since the last pipeline run — grid refreshes every minute.' : '';
+    $('reqMsg').className = 'msg ok';
     grid.innerHTML = '';
     if (!rows.length) { $('reqMsg').textContent = 'No visitor requests logged yet.'; return; }
     for (const [t, info] of rows) {
@@ -174,7 +199,8 @@ async function loadRequests() {
       const last = info.lastAt ? new Date(info.lastAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '';
       const b = document.createElement('b'); b.textContent = t;
       const meta = document.createElement('div'); meta.className = 'meta';
-      meta.textContent = info.count + '× requested' + (last ? ' · last ' + last : '');
+      meta.textContent = (info.fresh ? 'NEW · ' : '') + info.count + '× requested' + (last ? ' · last ' + last : '');
+      if (info.fresh) meta.style.color = 'var(--good)';
       tile.append(b, meta);
       if (tracked.has(t)) {
         const span = document.createElement('span'); span.className = 'tracked'; span.textContent = '✓ tracked';
@@ -310,6 +336,11 @@ $('addBtn').onclick = async () => {
   } catch (e) { $('addMsg').textContent = 'Failed: ' + e.message; $('addMsg').className = 'msg err'; }
   $('addBtn').disabled = false;
 };
+
+// keep the requests grid live while the console is open (visible tab only)
+setInterval(() => {
+  if (!document.hidden && !$('panel').classList.contains('hidden')) loadRequests();
+}, 60000);
 
 tryLogin(true);
 </script>
