@@ -17,6 +17,12 @@
 *{box-sizing:border-box}
 body{margin:0;font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--page);color:var(--ink);padding:16px;padding-bottom:48px}
 .wrap{max-width:760px;margin:0 auto}
+.cols{display:grid;gap:14px;grid-template-columns:1fr}
+@media (min-width:1000px){
+  .wrap{max-width:1240px}
+  .cols{grid-template-columns:1.15fr .85fr;align-items:start}
+  .req-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+}
 h1{font-size:20px;color:var(--accent);margin:8px 0 2px}
 h2{font-size:15px;margin:0 0 10px}
 .sub{color:var(--muted);font-size:13px;margin:0 0 18px}
@@ -84,6 +90,8 @@ a{color:var(--accent)}
       <div class="hint">Pipeline runs and logs: <a href="https://github.com/Harris120807/stock-dashboard/actions" target="_blank" rel="noopener">GitHub Actions</a></div>
     </div>
 
+    <div class="cols">
+    <div>
     <div class="card">
       <h2>Traffic <span class="range" style="float:right"><button data-d="7" class="on">7d</button><button data-d="30">30d</button></span></h2>
       <canvas id="chart"></canvas>
@@ -91,7 +99,9 @@ a{color:var(--accent)}
       <div class="msg" id="statsMsg"></div>
       <div class="hint">Anonymous request counts from the API edge (page loads aren't counted directly — the <code>prices</code> route ≈ active viewers, polled every 45s per open tab). Counts are sampled estimates at high volume.</div>
     </div>
+    </div>
 
+    <div>
     <div class="card">
       <h2>Run pipelines</h2>
       <div class="row">
@@ -115,6 +125,8 @@ a{color:var(--accent)}
         <label class="switch"><input type="checkbox" id="fStockRefresh"><span class="slider"></span></label></div>
       <div class="msg" id="cfgMsg"></div>
       <div class="hint">Changes reach every visitor within about a minute. Flags fail open — if config storage is unreachable, the site keeps working.</div>
+    </div>
+    </div>
     </div>
 
     <div class="card">
