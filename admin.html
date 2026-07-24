@@ -467,7 +467,7 @@ async function loadBacktest() {
       const qs = Object.entries(h.quintiles).map(([q, v]) => [q, v]);
       const vals = qs.map(x => x[1]).concat([h.benchmark, 0]).filter(v => v !== null);
       const lo = Math.min(...vals), hi = Math.max(...vals), span = hi - lo || 1;
-      const W = 240, H = 150, bot = 22, top = 14;
+      const W = 240, H = 150, bot = 22, top = 20; // top padding fits the tallest bar's label ABOVE the bar
       const y = v => top + (H - top - bot) * (1 - (v - lo) / span);
       const bw = W / qs.length;
       let s = `<svg viewBox="0 0 ${W} ${H}" style="width:100%">`;
@@ -477,7 +477,8 @@ async function loadBacktest() {
         const barTop = Math.min(y0, yv), barH = Math.max(2, Math.abs(y0 - yv));
         const col = q === '5' ? good : q === '1' ? bad : accent;
         s += `<rect x="${i * bw + 8}" y="${barTop}" width="${bw - 16}" height="${barH}" rx="3" fill="${col}" opacity="${q === '5' || q === '1' ? 1 : 0.55}"/>`;
-        s += `<text x="${i * bw + bw / 2}" y="${yv - 4 < 12 ? yv + 12 : yv - 4}" text-anchor="middle" font-size="10" fill="currentColor">${v > 0 ? '+' : ''}${v}%</text>`;
+        const labY = v >= 0 ? Math.max(10, barTop - 4) : Math.min(H - bot - 3, barTop + barH + 11);
+        s += `<text x="${i * bw + bw / 2}" y="${labY}" text-anchor="middle" font-size="10" fill="currentColor">${v > 0 ? '+' : ''}${v}%</text>`;
         s += `<text x="${i * bw + bw / 2}" y="${H - 6}" text-anchor="middle" font-size="10" fill="${muted}">Q${q}</text>`;
       });
       if (h.benchmark !== null) s += `<line x1="0" x2="${W}" y1="${y(h.benchmark)}" y2="${y(h.benchmark)}" stroke="${muted}" stroke-dasharray="4,3"/>`;
