@@ -3,7 +3,16 @@
 **ValueTally** (product name owner-chosen 2026-07-22; previously StockDash 07-21→07-22, renamed after discovering stockdash.co.uk — an unrelated, three-months-older UK portfolio app; valuetally.com/.co.uk/.uk were all free at decision time, owner registers them). Repo/infra IDs (stock-dashboard, stockdash-proxy, harris-stockdash ntfy topics) deliberately KEEP their old names — they are addresses, not brand — auto-refreshing stock value dashboard: **top 300 US + top 30 UK/European stocks** by
 market cap (US raised 50→300 on 2026-07-22, owner request; pool ~380 with retained names), scored on valuation multiples, technicals, and analyst sentiment.
 
-- **Live site**: https://valuetally.com/ (GitHub Pages, served from `claude/pages`; DNS via owner's Cloudflare free zone, grey-cloud A records to GitHub + www CNAME; harris120807.github.io/stock-dashboard 301-redirects once the CNAME file is in the publish)
+- **Live site**: https://valuetally.com/ (GitHub Pages, served from `claude/pages`).
+  **Hosting/DNS (2026-07-22)**: domain bought at GoDaddy (no GoDaddy hosting — declined,
+  Pages hosts for free), nameservers moved to the owner's Cloudflare free zone
+  (id `c0e0bf4b6284c2f2f072b792da1a898a`): four **grey-cloud** A records
+  185.199.108-111.153 (GitHub Pages) + `www` CNAME → harris120807.github.io.
+  Orange-cloud proxying was deliberately NOT enabled (it breaks GitHub's cert
+  issuance/renewal for the custom domain) — don't "fix" that. The workflow writes
+  `pub/CNAME` = valuetally.com each publish (Pages reads it from the branch root;
+  without it the custom domain detaches). harris120807.github.io/stock-dashboard
+  301-redirects to the domain. Owner still to do: register valuetally.co.uk/.uk defensively.
 - **Artifact mirror** (may lag; optional publish target): https://claude.ai/code/artifact/d5987bbf-966d-431c-a4fd-d9a68c40059d
 - **Owner notifications**: ntfy.sh topic `harris-stockdash-3cb22f88` → owner's phone. **Never send test messages to it.**
 
@@ -12,7 +21,7 @@ market cap (US raised 50→300 on 2026-07-22, owner request; pool ~380 with reta
 | Branch | Contents | Write rules |
 |---|---|---|
 | `main` | Workflows + legacy snapshot | Changes go via PR. **Standing owner authorization (2026-07-16): Claude may open AND self-merge PRs for small pipeline/workflow changes.** Anything that changes what the system *does* — new data sources, notification behavior, spending money, big architecture — still needs the owner's explicit OK first. |
-| `claude/pages` | `index.html` only — the published site | Force-pushed as ONE fresh commit per refresh, only by a pipeline run. Never hand-edit; it's overwritten on every refresh. |
+| `claude/pages` | The published site: `index.html`, `detail-data.json`, `pwa/`, `CNAME` | Force-pushed as ONE fresh commit per refresh, only by a pipeline run. Never hand-edit; it's overwritten on every refresh. |
 | `claude/state` | Pipeline state: `template.html`, `universe.json`, `analyst-state.json`, `fundamentals-state.json`, `watchlist-state.json`, `scripts/`, `routines/*.md` (docs), `README.md` | Normal commits; on push rejection `git pull --rebase origin claude/state` and retry. History squashed to a single snapshot 2026-07-22 (owner-approved one-time force-push — do NOT force-push otherwise). |
 | `claude/stock-dashboard-updates-*` | Dev/session branches | Per-session work. |
 
@@ -24,9 +33,9 @@ no Claude sessions in the loop:
 
 | Workflow | Script | Cron (UTC) | Writes |
 |---|---|---|---|
-| `weekly-universe.yml` | `scripts/weekly_universe.py` | `0 11 * * 1` | `universe.json` (US core = top 300 since 2026-07-22) + 5y `history/` deepen for new entrants; ntfy only on membership change |
+| `weekly-universe.yml` | `scripts/weekly_universe.py` | `0 11 * * 1` | `universe.json` (US core = top 300 since 2026-07-22; screens 1000 deep) + 5y `history/` deepen for new entrants (backfill_history.py DEEPEN=1: any shard <1000 pts gets a 5y refetch, score series preserved, no-op when the fetch is no deeper — so entrants get full lifetime history the day they join; audited 2026-07-24: all 334 shards complete, the only short series are genuine recent IPOs/spinoffs stored back to their first trading day); ntfy only on membership change |
 | `daily-analyst.yml` | `scripts/daily_analyst.py` | `0 12 * * 1-5` | `analyst-state.json`, `news-state.json`, `fundamentals-state.json` (profile2+metric+refPrice prefetch — see hourly note). **Weekday rotation (2026-07-22)**: each run fetches the Finnhub bundle for a stable md5-bucket fifth of the universe (+ any ticker new to analyst-state, same-day) and carries the rest forward; news additionally refreshes daily for the 50 largest; Yahoo targets daily for ALL. `FULL=1` (workflow_dispatch input `full`) seeds everything (~45 min) |
-| `hourly-refresh.yml` | `scripts/refresh.py` | `45 7-19 * * 1-5` (7-11 UTC = UK/EU hours, added 2026-07-21; backup — cron-job.org is primary, see workflow comment) | `claude/pages` (page + `pwa/` copy), `watchlist-state.json`, `last-data.json`, `price-history.json`, `price-history-long.json`, `requests-log.json`, ntfy push. **Yahoo-only since 2026-07-22**: prices/charts/FX from Yahoo; fundamentals read from `fundamentals-state.json` (daily prefetch), marketCap scaled by price drift vs `refPrice`; Finnhub hit per ticker only as fallback (bootstrap/new entrant/failed Yahoo) — keeps the shared 60/min budget for the page's refresh buttons. Charts are incremental: range=5d stitched onto stored `price-history-long.json`; full 2y refetch Mondays or when stored <260 days; if the 5d overlap disagrees >3% on 2+ days (Yahoo split/dividend rewrite) the ticker resyncs from 5y and REPLACES its stored price series (score series kept). `price-history-long.json` is written only when a durable change lands (new daily close/score point — ~1-2 commits/day); long history is SHARDED one file per ticker in `history/{T}.json` (2026-07-22; slashes→underscores) — readers: refresh.py `lh_read`, template `fetchLongHistory(t)`, Worker score-history, backfill_history.py (MIGRATE=1 splits a legacy single file). **Page payload split (2026-07-22)**: index.html embeds slim records; breakdowns/technicals/earnings-detail ship in `detail-data.json` beside it (lazy-fetched on first card open; contract = refresh.py DETAIL_FIELDS ↔ template fetchDetail). Per-run live-Finnhub fallback capped at 25 tickers (FALLBACK_CAP). Watchlist requires ≥2 scored valuation metrics AND ≥2 indicator components (thin-data guard — excludes brand-new listings until they have trend data) |
+| `hourly-refresh.yml` | `scripts/refresh.py` | GitHub cron thinned to backup-sentinel `45 9,15 * * 1-5` (2026-07-22) — cron-job.org is primary at the full `45 7-19 * * 1-5` cadence; the workflow's dedup step skips duplicate slots | `claude/pages` (index.html + detail-data.json + `pwa/` + CNAME), `watchlist-state.json`, `last-data.json`, `price-history.json`, `history/` shards, `requests-log.json`, ntfy push. **Yahoo-only since 2026-07-22**: prices/charts/FX from Yahoo; fundamentals read from `fundamentals-state.json` (daily prefetch), marketCap scaled by price drift vs `refPrice`; Finnhub hit per ticker only as fallback (bootstrap/new entrant/failed Yahoo) — keeps the shared 60/min budget for the page's refresh buttons. Charts are incremental: range=5d stitched onto stored `price-history-long.json`; full 2y refetch Mondays or when stored <260 days; if the 5d overlap disagrees >3% on 2+ days (Yahoo split/dividend rewrite) the ticker resyncs from 5y and REPLACES its stored price series (score series kept). Long history is SHARDED one file per ticker in `history/{T}.json` (2026-07-22; slashes→underscores), each shard written only when a durable change lands (new daily close/score point) — readers: refresh.py `lh_read`, template `fetchLongHistory(t)`, Worker score-history, backfill_history.py (MIGRATE=1 splits a legacy single file). **Page payload split (2026-07-22)**: index.html embeds slim records; breakdowns/technicals/earnings-detail ship in `detail-data.json` beside it (lazy-fetched on first card open; contract = refresh.py DETAIL_FIELDS ↔ template fetchDetail). Per-run live-Finnhub fallback capped at 25 tickers (FALLBACK_CAP). Watchlist requires ≥2 scored valuation metrics AND ≥2 indicator components (thin-data guard — excludes brand-new listings until they have trend data). **Data-quality guards (2026-07-24)**: trailing P/E is nulled (with PEG) when pe>400 or eps≤0 (not-meaningful — e.g. Bloom Energy); `last-data.json` is pruned to the current universe (no ghost tickers); earnings-calendar reporting-currency guard per Finnhub traps below |
 
 **cron-job.org (primary scheduler, owner's account)**: job 8110348 "Dashboard
 hourly refresh" (45 7-19 UTC Mon-Fri, extended to UK/EU hours 2026-07-21) and
@@ -137,9 +146,11 @@ FINNHUB_API_KEY=<key> STATE_DIR=state OUT_DIR=/tmp/run NOTIFY=0 python3 scripts/
 
 `template.html` on `claude/state` is the single UI source — an HTML **fragment**
 (no doctype/head/body) with a `/*__DATA__*/` placeholder that gets replaced by the
-compact 80-record JSON array. The GitHub Pages copy is wrapped (split at first
-`</style>`). After any template edit: extract `<script>` contents, `node --check`
-them, then republish via `refresh.py`.
+compact slim JSON array (~334 records; detail fields live in `detail-data.json`).
+The GitHub Pages copy is wrapped (split at first `</style>`). After any template
+edit: extract `<script>` contents, `node --check` them, then republish via
+`refresh.py` — and ALWAYS exec-test refresh.py on a mini universe first
+(py_compile misses NameErrors; one publish run died to that on 2026-07-24).
 
 - `fmtMoney(d, v)` renders per-record currency (1,479p / €495.80 / CHF 334.00 / kr / $).
 - **Per-stock refresh button** in the detail card calls Finnhub client-side (CORS `*`);
@@ -147,7 +158,7 @@ them, then republish via `refresh.py`.
   CORS, so native prices can't refresh in-browser). Updates are view-local.
 - **API proxy (2026-07-18)**: the page NO LONGER embeds the Finnhub key. All client
   market-data calls go through the owner's Cloudflare Worker
-  (`API_PROXY = https://stockdash-proxy.harris-stockdash.workers.dev`) — routes
+  (`API_PROXY = https://api.valuetally.com` since 2026-07-22) — routes
   `/quote?symbol=` (60s edge cache), `/metric?symbol=` (10 min), `/search?q=` (24h).
   Upstream usage is bounded by cache windows, not visitors, so there are no
   user-facing rate limits. Key lives ONLY in the GitHub Actions secret
@@ -189,6 +200,30 @@ them, then republish via `refresh.py`.
   No Worker-side cooldown (owner decision) — the workflow's 3-min dedup is the only
   rate control. Progress bar is time-calibrated, capped at 95% until the page's
   publish commit is detected. Owner chose to KEEP the hourly ntfy pulse (2026-07-22).
+- **Live prices (2026-07-22)**: 45s poller (visible tab only) hits the Worker's
+  `/prices` (batched Yahoo spark, native symbols so EU rows work, 30s edge cache)
+  and updates DATA in place — KPIs, heat strip, table-if-visible, open detail card
+  (with flash). View-local; the hourly publish remains the source of record.
+- **Stale-page banner (2026-07-22)**: `#staleBanner` shows when `/api/watchlist`
+  updatedAt is >90 min newer than the page's `BUILT_AT` — tells cached-PWA users
+  to pull fresh.
+- **"Data as of" is UK time** (Europe/London, BST/GMT abbrev — owner request 2026-07-22).
+- **Main drivers (2026-07-22)**: detail card renders a plain-English drivers list
+  (`scoreNarrative`) from scoreBreakdown — e.g. "Cheap vs sector peers". Keep its
+  wording consistent with the scoring version.
+- **Biggest Mover card** on #overview click-throughs to the stock's detail card.
+- **Scatter (2026-07-24 overhaul)**: colorGroup = top-**12** sectors (refresh.py
+  `most_common(12)`), colors assigned dynamically (`assignSectorColors()`:
+  PREFERRED_COLOR pins the 9 legacy sector→series mappings, remaining series
+  slots 1-12 fill by group size; `--series-10/11/12` exist in all four theme
+  blocks). Legend is built from groups present in DATA (dead chips impossible);
+  `#secHi` dropdown highlights ANY true sector (all ~38, with counts);
+  `#scatterN` toggles Top 150 (default) / All — active filters union-in matching
+  stocks below the size cut. Legend chips, heat-strip chips and the dropdown
+  clear each other.
+- **New-listing/spinoff notes**: detail card explains missing indicators for
+  young listings (no 200d SMA yet) and missing valuation for fresh spinoffs
+  (e.g. HONA — no standalone financials published yet). Don't "fix" those blanks.
 - **Stock requests page** POSTs to public ntfy topic `harris-stockdash-req-a2962152`
   (deliberately separate from the private pipeline topic — it's spam-exposed by
   design; owner subscribes to it read-only). Client-side throttle: 15s double-submit cooldown only (daily caps removed 2026-07-18 once search went through the proxy)
@@ -206,12 +241,14 @@ them, then republish via `refresh.py`.
   logged/counted. The title regex is a shared contract between template.html and
   refresh.py — change both together. Owner confirmed subscribed to the request
   topic and verified delivery end-to-end (2026-07-17).
-- **Deeper history**: `price-history-long.json` on `claude/state` =
-  `{updatedAt, byTicker: {T: {t:[daynums], p:[daily closes, native ccy], st:[daynums],
-  s:[combinedScore]}}}` — 5y daily closes (capped 1830d, seeded by
+- **Deeper history**: `history/{T}.json` shards on `claude/state` (per-ticker since
+  2026-07-22) = `{t:[daynums], p:[daily closes, native ccy], st:[daynums],
+  s:[combinedScore]}` — 5y daily closes (capped 1830d, seeded/deepened by
   `scripts/backfill_history.py`) + never-pruned daily score series, maintained
-  incrementally by `refresh.py`. The 1Y and 5Y chart ranges (detail card + compare) lazy-fetch
-  this file (`PHL_URL`); only 30D comes from `price-history.json`.
+  incrementally by `refresh.py`. The 1Y and 5Y chart ranges (detail card + compare)
+  lazy-fetch per-ticker shards (`fetchLongHistory(t)`, `PHL_BASE` raw URL,
+  `_phlShards` cache); only 30D comes from `price-history.json`. Compare-page
+  series shorter than the range = the stock IPO'd recently, not missing data.
 
 ## Cloudflare (client API proxy)
 
@@ -231,7 +268,14 @@ them, then republish via `refresh.py`.
   only the dashboard's own derived metrics (scores/positions/watchlist) — never
   re-serve raw vendor fields (prices, P/E, fundamentals) through it without a
   data license.** Deploy: REST upload with `keep_bindings: ["secret_text"]` so
-  the Finnhub Worker secret survives script updates.
+  the Finnhub Worker secret survives script updates (there are TWO Worker
+  secrets now: `FINNHUB_API_KEY` and `GH_TOKEN` — re-set both after a full
+  re-provision).
+- **`/prices` (2026-07-22)**: live-quote endpoint for the page's 45s poller — ONE
+  batched Yahoo spark sweep of the whole universe (chunked 20 symbols/request:
+  spark 400s above 20), 30s edge cache, so upstream cost is ~2 sweeps/min
+  globally regardless of visitors. `/refresh` (POST) dispatches hourly-refresh.yml
+  via the GH_TOKEN PAT.
 
 ## Multi-agent coordination
 
@@ -251,14 +295,15 @@ them, then republish via `refresh.py`.
   Ask the owner plainly; vague approvals get blocked.
 - Universe content questions (why isn't X listed?): check `universe.json` first.
   **Append-only pool (owner decision 2026-07-18)**: `us`/`europe` = FULL pool —
-  current top-50/30 core PLUS every previously tracked name; stocks are never
+  current top-300/30 core PLUS every previously tracked name; stocks are never
   removed on falling below the cutoff. `coreUs`/`coreEurope` = who currently
   makes the cut; `fellOut` = this week's core exits (retained); `dropped` is
-  always [] now. Expect a boundary-cohort burst of adds in the first weeks.
-  New entrants lack analyst/target data until the next daily job. At ~150
-  tickers the hourly runtime nears the workflow timeout — that's the trigger
-  to build tiered refresh (core hourly, retained every 2nd-3rd run). Barclays/Corning/SK-Hynix-ADR were
-  evaluated and fall outside the cutoffs; Rolls-Royce (RR.L) is in (#~22).
+  always [] now. New entrants get full 5y history at join (weekly deepen) but
+  lack analyst/target data until the next daily job. Runtime headroom is fine
+  post-Yahoo-only (~2.5 min hourly at 334 tickers; the old ~150-ticker tiered-
+  refresh trigger is obsolete). Corning/SK-Hynix-ADR were evaluated and fall
+  outside the cutoffs; Rolls-Royce (RR.L) is in. **Never add Barclays (BARC)**
+  — standing owner rule; monetization is also paused pending Barclays consent.
 
 ## History
 
@@ -268,3 +313,17 @@ them, then republish via `refresh.py`.
 - 2026-07-15: migrated to git state (`claude/state`), universe extended 50→80 with native
   European listings, currency normalization added, per-stock refresh button shipped,
   pipeline ported to GitHub Actions after Routine-spawned sessions proved unable to push.
+- 2026-07-22: efficiency program (Yahoo-only hourly, incremental charts, sharded
+  history, thinned backup cron, state history squash, legacy triggers deleted);
+  ValueTally rebrand + valuetally.com + api.valuetally.com; live prices +
+  stale banner + full-refresh button; US universe to 300.
+- 2026-07-24: scoring v5 (sector-relative), foreign-filter hardening, P/E
+  not-meaningful guard, scatter overhaul, history-depth audit (all complete).
+
+## Open items (owner-side)
+
+- Rotate the OLD Finnhub key (it sat in template.html in public git history
+  pre-2026-07-18) — needs updating in the GitHub secret + Worker secret.
+- Register valuetally.co.uk / .uk defensively.
+- Finnhub commercial-licensing email still unanswered; monetization paused
+  (also pending Barclays consent).
