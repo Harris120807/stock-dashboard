@@ -978,7 +978,7 @@ function renderKpis(){
   const big = moved.length ? moved.reduce((a,d)=> Math.abs(d.dayChange) > Math.abs(a.dayChange) ? d : a) : null;
 
   const tiles = [
-    {label:'Advancing Today', value: moved.length ? `<span class="kpi-up${up > down ? ' kpi-big' : ''}">${up}</span> <span class="kpi-vs">vs</span> <span class="kpi-down${down > up ? ' kpi-big' : ''}">${down}</span>` : '—', sub: 'stocks up vs down', cls: ''},
+    {label:'Advancing Today', value: moved.length ? `<span class="kpi-up${up > down ? ' kpi-big' : ''}">${up}</span> <span class="kpi-vs">vs</span> <span class="kpi-down${down > up ? ' kpi-big' : ''}">${down}</span>` : '—', sub: 'by share price today, not score', cls: ''},
     {label:'Average Move Today', value: avg === null ? '—' : fmtPct(avg), sub: 'equal-weight across the set', cls: avg === null ? '' : avg >= 0 ? 'good' : 'critical'},
     {label:'Biggest Mover', value: big ? `${big.ticker} <span class="kpi-big ${big.dayChange >= 0 ? 'kpi-up' : 'kpi-down'}">${fmtPct(big.dayChange)}</span>` : '—', sub: big ? 'largest move today — tap for details' : 'no session data', cls: '', link: big ? big.ticker : null},
     {label:'Valuation Split', value: `<span class="kpi-up${under > over ? ' kpi-big' : ''}">${under}</span> <span class="kpi-vs">vs</span> <span class="kpi-down${over > under ? ' kpi-big' : ''}">${over}</span>`, sub: 'undervalued vs overvalued', cls: ''},
