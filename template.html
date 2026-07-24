@@ -2194,6 +2194,7 @@ function renderDetailCard(d){
       <div class="ph-note" id="phNote"></div>
     </div>
     <div class="fund-sec">Valuation</div>
+    ${d.pe === null && d.pb === null && d.margin === null && d.price ? `<div style="font-size:12px;color:var(--text-secondary);margin:2px 0 10px;">Most valuation metrics are blank because this company hasn't published a full set of standalone financials yet (recent listing or spin-off) — they fill in automatically as quarterly filings accumulate.</div>` : ''}
     <div class="metric-grid">
       ${metricTile('Trailing P/E', d.pe!==null?fmtNum(d.pe)+'×':'—')}
       ${metricTile('Forward P/E', d.fpe!==null?fmtNum(d.fpe)+'×':'—')}
