@@ -268,8 +268,9 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   only the dashboard's own derived metrics (scores/positions/watchlist) — never
   re-serve raw vendor fields (prices, P/E, fundamentals) through it without a
   data license.** Deploy: REST upload with `keep_bindings: ["secret_text"]` so
-  Worker secrets survive script updates (THREE Worker secrets: `FINNHUB_API_KEY`,
-  `GH_TOKEN`, `ADMIN_KEY` — re-set all after a full re-provision).
+  Worker secrets survive script updates (FOUR Worker secrets: `FINNHUB_API_KEY`,
+  `GH_TOKEN`, `ADMIN_KEY`, `CF_ANALYTICS_TOKEN` — re-set all after a full
+  re-provision).
 - **`/prices` (2026-07-22)**: live-quote endpoint for the page's 45s poller — ONE
   batched Yahoo spark sweep of the whole universe (chunked 20 symbols/request:
   spark 400s above 20), 30s edge cache, so upstream cost is ~2 sweeps/min
@@ -291,16 +292,15 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   ≤20/submission → `/admin/add-tickers` → `add-tickers.yml` on main: validate,
   append to pool, DEEPEN 5y backfill, push state, chain hourly refresh, ntfy;
   BARC/BCS + TEST hard-blocked in add_tickers.py).
-- **Traffic status (as deployed 2026-07-24)**: `/admin/stats` currently returns
-  "analytics not configured" — the classifier (correctly) refused storing the
-  owner's Global API Key as a Worker secret, and Analytics Engine needs a
-  one-time dashboard enable. To finish: owner enables AE
-  (dash.cloudflare.com → Workers → Analytics Engine) and creates a scoped
-  API token (Account Analytics:Read) → store as Worker secret
-  `CF_ANALYTICS_TOKEN`, re-add the `analytics_engine` binding
-  (name TRAFFIC, dataset stockdash_traffic) and redeploy — worker.js already
-  contains both the logging call (`env.TRAFFIC?.writeDataPoint`, optional so
-  its absence is harmless) and the SQL/GraphQL query paths.
+- **Traffic (live since 2026-07-24 ~20:10 UTC)**: every Worker request logs an
+  anonymous data point (route group + country, no IPs/UAs) to Analytics Engine
+  dataset `stockdash_traffic` (binding `TRAFFIC`; owner enabled AE on the
+  account). `/admin/stats` queries it via the AE SQL API using Worker secret
+  `CF_ANALYTICS_TOKEN` — a SCOPED token (Account Analytics:Read only) the owner
+  created for this; the classifier had (correctly) refused storing the Global
+  API Key. Counts exist only from the enable date forward. Deploy metadata must
+  re-declare BOTH bindings (kv_namespace CONFIG + analytics_engine TRAFFIC)
+  alongside `keep_bindings: ["secret_text"]`.
 - **Template kill-switch handling**: `/prices` `{disabled:true}` stops the live
   poller for that page load; disabled `/quote`//`metric` → "live refresh is
   currently switched off" in the detail card; `/refresh` 403 shows the
