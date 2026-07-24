@@ -87,6 +87,7 @@ a{color:var(--accent)}
     <div class="atabs">
       <button class="atab on" data-atab="overview">Overview</button>
       <button class="atab" data-atab="requests">Requests</button>
+      <button class="atab" data-atab="backtest">Backtest</button>
     </div>
 
     <div id="atab-overview">
@@ -159,6 +160,16 @@ a{color:var(--accent)}
       </div>
       <div class="msg" id="addMsg"></div>
     </div>
+    </div>
+    </div>
+
+    <div id="atab-backtest" class="hidden">
+    <div class="card">
+      <h2>Does the score predict returns? <button class="ghost" id="btRun" style="float:right;font-size:13px">Re-run backtest</button></h2>
+      <div class="hint" id="btMeta" style="margin:0 0 10px"></div>
+      <div id="btCharts" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px"></div>
+      <div class="msg" id="btMsg"></div>
+      <div class="hint" id="btCaveats" style="margin-top:12px"></div>
     </div>
     </div>
 
@@ -414,10 +425,67 @@ document.querySelectorAll('[data-wf]').forEach(btn => btn.addEventListener('clic
 
 document.querySelectorAll('.atab').forEach(b => b.addEventListener('click', () => {
   document.querySelectorAll('.atab').forEach(x => x.classList.toggle('on', x === b));
-  document.getElementById('atab-overview').classList.toggle('hidden', b.dataset.atab !== 'overview');
-  document.getElementById('atab-requests').classList.toggle('hidden', b.dataset.atab !== 'requests');
+  ['overview', 'requests', 'backtest'].forEach(t =>
+    document.getElementById('atab-' + t).classList.toggle('hidden', b.dataset.atab !== t));
   if (b.dataset.atab === 'requests') loadRequests();
+  if (b.dataset.atab === 'backtest') loadBacktest();
 }));
+
+const BT_URL = 'https://raw.githubusercontent.com/Harris120807/stock-dashboard/claude/state/backtest.json';
+async function loadBacktest() {
+  const charts = $('btCharts');
+  try {
+    const d = await fetch(BT_URL, { cache: 'no-cache' }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    $('btMeta').textContent = `Monthly rebalance over ${d.samples} month-samples, ${d.tickersUsed} tickers, ${d.horizons['12m'].n.toLocaleString()} stock-months. Q5 = highest combined scores at the time, Q1 = lowest. Bars are average forward returns; the dashed line is the equal-weight universe.`;
+    $('btCaveats').textContent = '⚠ ' + d.caveats + ' Run ' + new Date(d.runAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + '.';
+    charts.innerHTML = '';
+    const css = getComputedStyle(document.documentElement);
+    const accent = css.getPropertyValue('--accent').trim(), good = css.getPropertyValue('--good').trim(), bad = css.getPropertyValue('--bad').trim(), muted = css.getPropertyValue('--muted').trim();
+    for (const [hz, h] of Object.entries(d.horizons)) {
+      const qs = Object.entries(h.quintiles).map(([q, v]) => [q, v]);
+      const vals = qs.map(x => x[1]).concat([h.benchmark, 0]).filter(v => v !== null);
+      const lo = Math.min(...vals), hi = Math.max(...vals), span = hi - lo || 1;
+      const W = 240, H = 150, bot = 22, top = 14;
+      const y = v => top + (H - top - bot) * (1 - (v - lo) / span);
+      const bw = W / qs.length;
+      let s = `<svg viewBox="0 0 ${W} ${H}" style="width:100%">`;
+      qs.forEach(([q, v], i) => {
+        if (v === null) return;
+        const y0 = y(Math.max(0, lo)), yv = y(v);
+        const barTop = Math.min(y0, yv), barH = Math.max(2, Math.abs(y0 - yv));
+        const col = q === '5' ? good : q === '1' ? bad : accent;
+        s += `<rect x="${i * bw + 8}" y="${barTop}" width="${bw - 16}" height="${barH}" rx="3" fill="${col}" opacity="${q === '5' || q === '1' ? 1 : 0.55}"/>`;
+        s += `<text x="${i * bw + bw / 2}" y="${yv - 4 < 12 ? yv + 12 : yv - 4}" text-anchor="middle" font-size="10" fill="currentColor">${v > 0 ? '+' : ''}${v}%</text>`;
+        s += `<text x="${i * bw + bw / 2}" y="${H - 6}" text-anchor="middle" font-size="10" fill="${muted}">Q${q}</text>`;
+      });
+      if (h.benchmark !== null) s += `<line x1="0" x2="${W}" y1="${y(h.benchmark)}" y2="${y(h.benchmark)}" stroke="${muted}" stroke-dasharray="4,3"/>`;
+      s += '</svg>';
+      const box = document.createElement('div');
+      const title = document.createElement('div');
+      title.style.cssText = 'font-size:13px;font-weight:600;margin-bottom:2px';
+      title.textContent = { '1m': '1 month ahead', '3m': '3 months ahead', '6m': '6 months ahead', '12m': '12 months ahead' }[hz] || hz;
+      box.appendChild(title);
+      box.insertAdjacentHTML('beforeend', s);
+      charts.appendChild(box);
+    }
+  } catch (e) {
+    $('btMeta').textContent = '';
+    charts.innerHTML = '';
+    $('btMsg').textContent = 'No backtest results yet — hit "Re-run backtest" and come back in ~2 minutes.';
+    $('btMsg').className = 'msg';
+  }
+}
+$('btRun').onclick = async () => {
+  $('btRun').disabled = true;
+  $('btMsg').textContent = 'Dispatching…'; $('btMsg').className = 'msg';
+  try {
+    const r = await authFetch('/admin/run', { method: 'POST', body: JSON.stringify({ workflow: 'backtest' }) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.status);
+    $('btMsg').textContent = '✓ Running — results land here in ~2 min (reopen this tab to refresh).'; $('btMsg').className = 'msg ok';
+  } catch (e) { $('btMsg').textContent = 'Failed: ' + e.message; $('btMsg').className = 'msg err'; }
+  setTimeout(() => { $('btRun').disabled = false; }, 5000);
+};
 
 // keep the requests grid live while the console is open (visible tab only)
 setInterval(() => {

@@ -230,6 +230,7 @@ async function handleAdmin(route, req, env, ctx) {
       'daily-analyst': 'daily-analyst.yml',
       'weekly-universe': 'weekly-universe.yml',
       'annual-benchmarks': 'annual-benchmarks.yml',
+      'backtest': 'backtest.yml',
     };
     const wf = WFS[body.workflow];
     if (!wf) return json({ error: 'unknown workflow' }, 400, 0);

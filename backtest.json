@@ -1,0 +1,52 @@
+{
+ "runAt": "2026-07-24T21:45:24.417172+00:00",
+ "samples": 45,
+ "tickersUsed": 329,
+ "horizons": {
+  "1m": {
+   "quintiles": {
+    "1": 0.55,
+    "2": 0.8,
+    "3": 1.25,
+    "4": 1.58,
+    "5": 2.05
+   },
+   "benchmark": 1.24,
+   "n": 14559
+  },
+  "3m": {
+   "quintiles": {
+    "1": 1.84,
+    "2": 2.06,
+    "3": 3.25,
+    "4": 4.93,
+    "5": 6.34
+   },
+   "benchmark": 3.68,
+   "n": 14559
+  },
+  "6m": {
+   "quintiles": {
+    "1": 5.05,
+    "2": 5.6,
+    "3": 6.82,
+    "4": 10.99,
+    "5": 13.79
+   },
+   "benchmark": 8.44,
+   "n": 14559
+  },
+  "12m": {
+   "quintiles": {
+    "1": 12.97,
+    "2": 15.39,
+    "3": 21.09,
+    "4": 29.23,
+    "5": 40.27
+   },
+   "benchmark": 23.75,
+   "n": 14559
+  }
+ },
+ "caveats": "Reconstructed fundamentals (today's ratios price-scaled), survivorship bias (today's universe), equal weight, no dividends/costs. Rough sanity check only."
+}
