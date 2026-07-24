@@ -97,6 +97,6 @@ jobs:
           if [ "${{ steps.pages.outcome }}" != "success" ]; then
             BODY="$BODY (page may show stale data — publish step failed)"
           fi
-          curl -sS -H "Title: Stock Dashboard Refreshed" -H "Tags: bar_chart" \
-               -H "Click: https://harris120807.github.io/stock-dashboard/" \
+          curl -sS -H "Title: ValueTally hourly status" -H "Tags: bar_chart" \
+               -H "Click: https://valuetally.com/" \
                -d "$BODY" https://ntfy.sh/harris-stockdash-3cb22f88
