@@ -2082,7 +2082,9 @@ async function refreshStock(ticker){
       const r = await fetch(`${API_PROXY}/${path}`);
       if (r.status === 429) throw Object.assign(new Error('rate limited'), { rateLimited: true });
       if (!r.ok) throw new Error('upstream ' + r.status);
-      return r.json();
+      const j = await r.json();
+      if (j && j.disabled) throw Object.assign(new Error('disabled'), { disabled: true });
+      return j;
     };
     const [quote, metricResp] = await Promise.all([
       grab(`quote?symbol=${encodeURIComponent(sym)}`),
@@ -2114,6 +2116,8 @@ async function refreshStock(ticker){
     note.classList.add('err');
     note.textContent = err && err.rateLimited
       ? 'data provider is busy — try again in a minute'
+      : err && err.disabled
+      ? 'live refresh is currently switched off'
       : 'live refresh unavailable here';
   }
 }
@@ -2709,6 +2713,14 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
       const r = await fetch(API_PROXY + '/prices');
       if (!r.ok) return;
       const j = await r.json();
+      if (j && j.disabled){
+        // owner kill-switch: stop polling for this page load (re-enable takes
+        // effect on the next visit); the hourly pipeline keeps prices honest
+        clearInterval(iv);
+        const dot = document.getElementById('liveDot');
+        if (dot) dot.style.display = 'none';
+        return;
+      }
       if (!j || !j.byTicker || j.updatedAt === lastStamp) return;
       lastStamp = j.updatedAt;
       let changed = 0;
@@ -2761,7 +2773,7 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
       }
     } catch(e){ /* transient — next tick */ }
   }
-  setInterval(tick, 45000);
+  const iv = setInterval(tick, 45000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
   setTimeout(tick, 4000);
 })();

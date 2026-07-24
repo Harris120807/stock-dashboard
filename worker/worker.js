@@ -14,10 +14,23 @@
 // Public read-only API (scores are this dashboard's own derived metrics —
 // raw vendor market data is deliberately NOT re-served here):
 //   /api                 -> endpoint docs
-//   /api/scores          -> all 80 stocks: scores, position, watchlist flags
+//   /api/scores          -> all covered stocks: scores, position, watchlist flags
 //   /api/scores/:ticker  -> one stock incl. score breakdown + daily score history
 //   /api/watchlist       -> current buy/sell watchlist
-// Backed by the claude/state JSON files, edge-cached ~5 min.
+// Backed by the claude/state JSON files, edged-cached ~5 min.
+//
+// Admin API (2026-07-24, owner-only — Bearer ADMIN_KEY, responses never cached):
+//   GET  /admin/ping        -> key check for the admin page login
+//   GET  /admin/config      -> kill-switch flags   POST -> update (KV `CONFIG`)
+//   POST /admin/add-tickers -> dispatch add-tickers.yml with the form input
+//   GET  /admin/stats?days= -> traffic from Analytics Engine (needs Worker
+//                              secret CF_ANALYTICS_TOKEN with Account Analytics:Read)
+// Every request logs an anonymous data point (route group + country) to the
+// Analytics Engine dataset `stockdash_traffic` (binding TRAFFIC).
+// Kill-switches: livePrices gates /prices, fullRefresh gates /refresh,
+// stockRefresh gates /quote + /metric (/search stays open — the requests page
+// depends on it). Flags live in KV (binding CONFIG, key `flags`), read with a
+// 60s cache — a toggle takes effect within ~a minute everywhere.
 
 const STATE_RAW = 'https://raw.githubusercontent.com/Harris120807/stock-dashboard/claude/state/';
 const API_TTL = 300;
@@ -32,10 +45,34 @@ const CORS = {
 };
 
 function json(obj, status, ttl) {
+  const cc = ttl === 0 ? 'no-store' : 'public, max-age=' + (ttl || API_TTL);
   return new Response(JSON.stringify(obj), {
     status: status || 200,
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=' + (ttl || API_TTL), ...CORS },
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': cc, ...CORS },
   });
+}
+
+const DEFAULT_FLAGS = { livePrices: true, fullRefresh: true, stockRefresh: true };
+
+async function getFlags(env) {
+  try {
+    const raw = await env.CONFIG?.get('flags', { cacheTtl: 60 });
+    return raw ? { ...DEFAULT_FLAGS, ...JSON.parse(raw) } : { ...DEFAULT_FLAGS };
+  } catch (e) {
+    return { ...DEFAULT_FLAGS };   // config unreachable -> fail open, site keeps working
+  }
+}
+
+// Timing-safe-enough key check: compare SHA-256 digests, not the strings.
+async function adminAuthed(req, env) {
+  if (!env.ADMIN_KEY) return false;
+  const given = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!given) return false;
+  const dig = async s => new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)));
+  const [a, b] = await Promise.all([dig(given), dig(env.ADMIN_KEY)]);
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+  return diff === 0;
 }
 
 async function stateJson(file, ctx) {
@@ -140,6 +177,66 @@ async function handlePrices(ctx) {
   return res;
 }
 
+const ACCOUNT_ID = 'e3f3a97cb1349addb9ec089f9383d12d';
+const AE_DATASET = 'stockdash_traffic';
+
+async function handleAdmin(route, req, env, ctx) {
+  if (!(await adminAuthed(req, env))) return json({ error: 'unauthorized' }, 401, 0);
+
+  if (route === 'admin/ping') return json({ ok: true }, 200, 0);
+
+  if (route === 'admin/config') {
+    const flags = await getFlags(env);
+    if (req.method === 'GET') return json(flags, 200, 0);
+    if (req.method === 'POST') {
+      if (!env.CONFIG) return json({ error: 'config storage not provisioned' }, 503, 0);
+      let body;
+      try { body = await req.json(); } catch (e) { return json({ error: 'bad json' }, 400, 0); }
+      for (const k of Object.keys(DEFAULT_FLAGS)) {
+        if (typeof body[k] === 'boolean') flags[k] = body[k];
+      }
+      await env.CONFIG.put('flags', JSON.stringify(flags));
+      return json({ ...flags, note: 'takes effect everywhere within ~60s' }, 200, 0);
+    }
+  }
+
+  if (route === 'admin/add-tickers' && req.method === 'POST') {
+    if (!env.GH_TOKEN) return json({ error: 'not configured' }, 503, 0);
+    let body;
+    try { body = await req.json(); } catch (e) { return json({ error: 'bad json' }, 400, 0); }
+    const raw = String(body.tickers || '').slice(0, 300);
+    if (!raw.trim() || /[^A-Za-z0-9.\-:,\s]/.test(raw)) {
+      return json({ error: 'tickers must be symbols like AAPL or HSBA.L:HSBC, comma-separated' }, 400, 0);
+    }
+    const r = await fetch(`https://api.github.com/repos/${GH_REPO}/actions/workflows/add-tickers.yml/dispatches`, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + env.GH_TOKEN, 'Accept': 'application/vnd.github+json',
+        'User-Agent': 'valuetally-admin', 'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ ref: 'main', inputs: { tickers: raw } }),
+    });
+    if (r.status !== 204) return json({ error: 'dispatch failed (' + r.status + ')' }, 502, 0);
+    return json({ ok: true, note: 'validating and adding — accepted tickers are live in ~4 min; you get an ntfy with the outcome' }, 200, 0);
+  }
+
+  if (route === 'admin/stats') {
+    if (!env.CF_ANALYTICS_TOKEN) return json({ error: 'analytics token not configured' }, 503, 0);
+    const days = Math.min(30, Math.max(1, parseInt(new URL(req.url).searchParams.get('days') || '7', 10) || 7));
+    const sql = `SELECT toStartOfInterval(timestamp, INTERVAL '1' DAY) AS day, blob1 AS route, ` +
+      `sum(_sample_interval) AS requests FROM ${AE_DATASET} ` +
+      `WHERE timestamp > NOW() - INTERVAL '${days}' DAY GROUP BY day, route ORDER BY day ASC`;
+    const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/analytics_engine/sql`, {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + env.CF_ANALYTICS_TOKEN }, body: sql,
+    });
+    if (!r.ok) return json({ error: 'analytics query failed (' + r.status + ')' }, 502, 0);
+    const data = await r.json();
+    return json({ days, rows: data.data || [] }, 200, 0);
+  }
+
+  return json({ error: 'not found' }, 404, 0);
+}
+
 async function handleRefresh(env, ctx) {
   if (!env.GH_TOKEN) return json({ error: 'refresh trigger not configured' }, 503, 30);
   const gh = {
@@ -159,11 +256,24 @@ export default {
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
     const url = new URL(req.url);
     const route = url.pathname.replace(/^\/+|\/+$/g, '');
+    // anonymous traffic point: route group + country (no IPs, no UAs)
+    try {
+      const group = route.split('/')[0] || 'root';
+      env.TRAFFIC?.writeDataPoint({ blobs: [group, (req.cf && req.cf.country) || ''], indexes: [group] });
+    } catch (e) { /* analytics must never break serving */ }
+    if (route.startsWith('admin')) {
+      try { return await handleAdmin(route, req, env, ctx); }
+      catch (e) { return json({ error: 'temporarily unavailable' }, 503, 0); }
+    }
     if (route === 'refresh' && req.method === 'POST') {
+      const flags = await getFlags(env);
+      if (!flags.fullRefresh) return json({ error: 'full refresh is currently disabled by the owner', disabled: true }, 403, 0);
       try { return await handleRefresh(env, ctx); }
       catch (e) { return json({ error: 'temporarily unavailable' }, 503, 0); }
     }
     if (route === 'prices' && req.method === 'GET') {
+      const flags = await getFlags(env);
+      if (!flags.livePrices) return json({ disabled: true }, 200, 60);
       try { return await handlePrices(ctx); }
       catch (e) { return json({ error: 'temporarily unavailable' }, 503, 10); }
     }
@@ -173,6 +283,10 @@ export default {
     }
     if (req.method !== 'GET' || !TTL[route]) {
       return new Response(JSON.stringify({ error: 'not found' }), { status: 404, headers: { 'Content-Type': 'application/json', ...CORS } });
+    }
+    if (route === 'quote' || route === 'metric') {
+      const flags = await getFlags(env);
+      if (!flags.stockRefresh) return json({ disabled: true }, 200, 60);
     }
     const params = [];
     for (const p of ALLOWED[route]) {
