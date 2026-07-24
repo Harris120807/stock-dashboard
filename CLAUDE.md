@@ -39,7 +39,7 @@ no Claude sessions in the loop:
 |---|---|---|---|
 | `weekly-universe.yml` | `scripts/weekly_universe.py` | `0 11 * * 1` | `universe.json` (US core = top 300 since 2026-07-22; screens 1000 deep) + 5y `history/` deepen for new entrants (backfill_history.py DEEPEN=1: any shard <1000 pts gets a 5y refetch, score series preserved, no-op when the fetch is no deeper — so entrants get full lifetime history the day they join; audited 2026-07-24: all 334 shards complete, the only short series are genuine recent IPOs/spinoffs stored back to their first trading day); ntfy only on membership change |
 | `daily-analyst.yml` | `scripts/daily_analyst.py` | `0 12 * * 1-5` | `analyst-state.json`, `news-state.json`, `fundamentals-state.json` (profile2+metric+refPrice prefetch — see hourly note). **Weekday rotation (2026-07-22)**: each run fetches the Finnhub bundle for a stable md5-bucket fifth of the universe (+ any ticker new to analyst-state, same-day) and carries the rest forward; news additionally refreshes daily for the 50 largest; Yahoo targets daily for ALL. `FULL=1` (workflow_dispatch input `full`) seeds everything (~45 min) |
-| `hourly-refresh.yml` | `scripts/refresh.py` | GitHub cron thinned to backup-sentinel `45 9,15 * * 1-5` (2026-07-22) — cron-job.org is primary at the full `45 7-19 * * 1-5` cadence; the workflow's dedup step skips duplicate slots | `claude/pages` (index.html + detail-data.json + `pwa/` + CNAME), `watchlist-state.json`, `last-data.json`, `price-history.json`, `history/` shards, `requests-log.json`, ntfy push. **Yahoo-only since 2026-07-22**: prices/charts/FX from Yahoo; fundamentals read from `fundamentals-state.json` (daily prefetch), marketCap scaled by price drift vs `refPrice`; Finnhub hit per ticker only as fallback (bootstrap/new entrant/failed Yahoo) — keeps the shared 60/min budget for the page's refresh buttons. Charts are incremental: range=5d stitched onto stored `price-history-long.json`; full 2y refetch Mondays or when stored <260 days; if the 5d overlap disagrees >3% on 2+ days (Yahoo split/dividend rewrite) the ticker resyncs from 5y and REPLACES its stored price series (score series kept). Long history is SHARDED one file per ticker in `history/{T}.json` (2026-07-22; slashes→underscores), each shard written only when a durable change lands (new daily close/score point) — readers: refresh.py `lh_read`, template `fetchLongHistory(t)`, Worker score-history, backfill_history.py (MIGRATE=1 splits a legacy single file). **Page payload split (2026-07-22)**: index.html embeds slim records; breakdowns/technicals/earnings-detail ship in `detail-data.json` beside it (lazy-fetched on first card open; contract = refresh.py DETAIL_FIELDS ↔ template fetchDetail). Per-run live-Finnhub fallback capped at 25 tickers (FALLBACK_CAP). Watchlist requires ≥2 scored valuation metrics AND ≥2 indicator components (thin-data guard — excludes brand-new listings until they have trend data). **Data-quality guards (2026-07-24)**: trailing P/E is nulled (with PEG) when pe>400 or eps≤0 (not-meaningful — e.g. Bloom Energy); `last-data.json` is pruned to the current universe (no ghost tickers); earnings-calendar reporting-currency guard per Finnhub traps below |
+| `hourly-refresh.yml` | `scripts/refresh.py` | GitHub cron thinned to backup-sentinel `45 9,15 * * 1-5` (2026-07-22) — cron-job.org is primary at the full `45 7-19 * * 1-5` cadence; the workflow's dedup step skips duplicate slots | `claude/pages` (index.html + detail-data.json + `pwa/` + CNAME), `watchlist-state.json`, `last-data.json`, `price-history.json`, `history/` shards, `requests-log.json`, `track-record.json`, ntfy push. **Yahoo-only since 2026-07-22**: prices/charts/FX from Yahoo; fundamentals read from `fundamentals-state.json` (daily prefetch), marketCap scaled by price drift vs `refPrice`; Finnhub hit per ticker only as fallback (bootstrap/new entrant/failed Yahoo) — keeps the shared 60/min budget for the page's refresh buttons. Charts are incremental: range=5d stitched onto stored `price-history-long.json`; full 2y refetch Mondays or when stored <260 days; if the 5d overlap disagrees >3% on 2+ days (Yahoo split/dividend rewrite) the ticker resyncs from 5y and REPLACES its stored price series (score series kept). Long history is SHARDED one file per ticker in `history/{T}.json` (2026-07-22; slashes→underscores), each shard written only when a durable change lands (new daily close/score point) — readers: refresh.py `lh_read`, template `fetchLongHistory(t)`, Worker score-history, backfill_history.py (MIGRATE=1 splits a legacy single file). **Page payload split (2026-07-22)**: index.html embeds slim records; breakdowns/technicals/earnings-detail ship in `detail-data.json` beside it (lazy-fetched on first card open; contract = refresh.py DETAIL_FIELDS ↔ template fetchDetail). Per-run live-Finnhub fallback capped at 25 tickers (FALLBACK_CAP). Watchlist requires ≥2 scored valuation metrics AND ≥2 indicator components (thin-data guard — excludes brand-new listings until they have trend data). **Data-quality guards (2026-07-24)**: trailing P/E is nulled (with PEG) when pe>400 or eps≤0 (not-meaningful — e.g. Bloom Energy); `last-data.json` is pruned to the current universe (no ghost tickers); earnings-calendar reporting-currency guard per Finnhub traps below |
 
 **cron-job.org (primary scheduler, owner's account)**: job 8110348 "Dashboard
 hourly refresh" (45 7-19 UTC Mon-Fri, extended to UK/EU hours 2026-07-21) and
@@ -288,10 +288,14 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   secrets; privileged calls send `Authorization: Bearer <ADMIN_KEY>`, which the
   Worker SHA-256-compares against Worker secret `ADMIN_KEY` (owner holds the
   key — handed over 2026-07-24; never commit it).
-- **Layout (2026-07-24 evening)**: THREE tabs — **Overview** (Status; then a
-  two-column desktop grid ≥1000px in a 1240px container: Traffic | Run-pipelines
-  + Kill-switches), **Requests** (visitor cards left, add form right),
-  **Backtest** (per-horizon quintile charts + Run button). Run-pipelines card =
+- **Layout (2026-07-24 evening; 4th tab 07-25)**: FOUR tabs — **Overview**
+  (Status; then a two-column desktop grid ≥1000px in a 1240px container:
+  Traffic | Run-pipelines + Kill-switches), **Requests** (visitor cards left,
+  add form right), **Backtest** (per-horizon quintile charts + Run button),
+  **Track record** (live pick performance — see below). NOTE the tab-switcher
+  hard-codes the pane list `['overview','requests','backtest','track']` —
+  a new tab must be added THERE too, not just as a button (the Track tab
+  shipped invisible once). Run-pipelines card =
   five dispatch buttons (hourly / analyst / analyst FULL seed / universe
   rescreen / benchmarks behind a confirm since a re-anchor re-grades all
   absolute scores). Kill-switches: livePrices / fullRefresh / stockRefresh →
@@ -311,7 +315,10 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   BARC/BCS + TEST hard-blocked in add_tickers.py).
 - **Extra admin routes** (beyond config/add-tickers/stats): `/admin/run`
   (whitelisted workflow dispatch incl. `backtest`), `/admin/adr-lookup`,
-  `/admin/send-digests` (manual alerts-digest pass).
+  `/admin/send-digests` (manual alerts-digest pass), `/admin/send-weekly`
+  (manual weekly-wrap pass — SENDS REAL EMAIL to opted-in users),
+  `/admin/deadman-check` (GET, ALWAYS a dry run — reports staleMinutes/
+  wouldAlert without touching the owner ntfy topic).
 - **Traffic (live since 2026-07-24 ~20:10 UTC)**: every Worker request logs an
   anonymous data point (route group + country, no IPs/UAs) to Analytics Engine
   dataset `stockdash_traffic` (binding `TRAFFIC`; owner enabled AE on the
@@ -367,7 +374,8 @@ edit: extract `<script>` contents, `node --check` them, then republish via
 
 - **Watchlist email digest**: Worker cron `30 20 * * 1-5` (schedules API) →
   `sendDigests`: opted-in verified users (users.alerts=1, unsub_token) get ONE
-  email listing starred stocks with |dayChange|≥5% or |scoreDelta|≥0.05; no
+  email listing starred stocks with |dayChange|≥5% or |scoreDelta|≥15 (was
+  0.05 — recalibrated 07-25 for the ~0-100 score scale); no
   events = no email. Toggle in the account modal (`POST /me/alerts`);
   one-click `GET /alerts/unsubscribe?u=TOKEN`. Manual trigger:
   `POST /admin/send-digests`. scoreDelta is computed BEFORE the last-data.json
@@ -388,9 +396,9 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   needs a 6th forward year — shards deliberately unchanged. Method: monthly
   samples, TODAY's ratios price-scaled (reconstruction bias — flatters mean
   reversion), technicals from closes, market-pool percentiles,
-  survivorship-biased universe. 5y run (60 samples, 331 tickers): 12m
-  Q5 +38.9% / Q1 +10.4% / bench +22.4%, monotonic at every horizon — present
-  ONLY with caveats. NOTE: backtest.yml also commits backtest.json, so local
+  survivorship-biased universe. 5y dividend-adjusted run (60 samples, 331
+  tickers, 2026-07-25): 12m Q5 +41.8% / Q1 +12.1% / bench +24.6%, monotonic
+  at every horizon — present ONLY with caveats. NOTE: backtest.yml also commits backtest.json, so local
   runs can conflict on rebase — regenerate or take the newer side.
 - **Hourly ntfy = status check (2026-07-24, owner request)**: body built in
   refresh.py — ▲/▼ counts + avg move + biggest mover / score ups↑ downs↓ +
@@ -399,6 +407,58 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   "ValueTally hourly status" + valuetally.com click-through live in
   hourly-refresh.yml (PR #17). Owner-approved replacement for the plain
   "Refreshed" pulse.
+
+## Track record / screener / dead-man / weekly wrap (2026-07-25 batch)
+
+- **Live track record**: refresh.py appends one entry per trading day to
+  `track-record.json` on claude/state (`{startedAt, updatedAt, days: [{d,
+  buy, sell, buyRet, sellRet, benchRet, buyIdx, sellIdx, benchIdx}]}`):
+  end-of-day top-3/bottom-3 baskets; each day's return = mean dayChange of
+  the PREVIOUS entry's baskets (equal weight) vs a whole-universe benchmark;
+  cumulative indices start at 100 (tracking began 2026-07-25 — history before
+  that is unrecoverable by design). Hourly runs overwrite today's provisional
+  entry (last run of the day stands); hourly-refresh.yml `git add`s the file
+  (PR #19). Admin **Track record** tab renders the three cumulative lines +
+  KPIs; unlike the Backtest tab nothing is reconstructed — this is the real
+  out-of-sample record. Currently ADMIN-ONLY (owner choice); could go public
+  later.
+- **Table screener**: "Filters" chip on #table opens `#screenPanel` — sector
+  (true sectors w/ counts), min combined score, max P/E, dividend/yield floor,
+  region (US vs UK/EU; proxy `isEuRow` = dotted ticker OR non-USD currency —
+  ARM/SPOT deliberately count as US). Named saved screens in localStorage
+  `vt-screens` (device-local; stores the raw select VALUES so restore is
+  verbatim — don't store parsed floats, "1.0" ≠ String(1.0)). Filter stacks
+  with the position chips + sector legend + search.
+- **"What changed" line**: refresh.py `change_note()` builds a plain-English
+  day-over-day note per ticker (score delta ≥10 — combinedScore is ~0-100
+  with ~5 pts of ROUTINE daily churn since v5 percentiles reshuffle with
+  prices, so small-scale thresholds like 0.005 fire on 90% of the pool
+  (shipped that way once); daily-digest score events were re-thresholded to
+  ≥15 at the same time. SMA50/200 crossings —
+  yesterday's state recomputed from the shard closes, RSI zone entry/exit,
+  |weekChange|≥5%) → `changeNote`, shipped via detail-data.json (in
+  DETAIL_FIELDS; template mergeDetail must copy AND clear it — absent means
+  quiet day). Renders as the accent-bordered "Since yesterday:" callout under
+  Main drivers. `weekChange` (close vs 5 trading days back, from the shard)
+  is now a slim/last-data field feeding the weekly wrap + note.
+- **Dead-man alarm**: Worker cron `15 10-19 * * 1-5` → `deadmanCheck`: if
+  watchlist-state.json updatedAt is >2h old (or unreadable) during market
+  hours → ntfy to the OWNER topic ("pipeline stalled", click → Actions),
+  KV-deduped to one alert per 4h (`deadmanLastAlert`). Test ONLY via
+  `GET /admin/deadman-check` (always dry — never send tests to the owner
+  topic). Silence from the hourly pulse now genuinely means "all fine".
+- **Weekly wrap email**: Worker cron `0 9 * * 6` → `sendWeekly`: every
+  opted-in verified user with a watchlist gets a Saturday wrap — their starred
+  stocks' week, universe top/bottom-5 by weekChange, system watchlist +
+  week's in/out (from track-record.json). Always sends (wrap, not alert);
+  same alerts flag + unsubscribe token as the daily digest. Manual:
+  `POST /admin/send-weekly`. The Worker now registers THREE cron schedules
+  via the schedules API — a redeploy does not touch them, but re-registering
+  must PUT all three (`30 20 * * 1-5`, `15 10-19 * * 1-5`, `0 9 * * 6`);
+  `scheduled()` dispatches on `event.cron`.
+- **Backtest returns are dividend-adjusted** since 2026-07-25 (Yahoo
+  `adjclose`, fallback raw close; stored-shard fallback stays raw) — the
+  "no dividends" caveat is retired, "no costs" remains.
 
 ## Multi-agent coordination
 
@@ -448,6 +508,12 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   daily alert digests; Resend domain verified + site-styled emails; score-
   history UI; Sectors tab; 5y quintile backtest; hourly ntfy → status check;
   KPI additions (Advancing "by share price, not score" + Scores Improving).
+- 2026-07-25 (late 07-24 UTC): live track record (track-record.json + admin
+  4th tab; PR #19); table screener with saved screens; "Since yesterday"
+  change note (changeNote in the detail contract) + weekChange field;
+  dead-man alarm cron (owner ntfy on stalled publishes, KV-deduped);
+  Saturday weekly-wrap email cron; backtest switched to dividend-adjusted
+  returns; Worker now runs three cron schedules.
 
 ## Open items (owner-side)
 
