@@ -295,7 +295,7 @@
   .acct-modal { background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px; padding: 20px; width: 100%; max-width: 380px; max-height: 90vh; overflow-y: auto; }
   .acct-modal h3 { margin: 0 0 4px; color: var(--accent); }
   .acct-modal .acct-sub { font-size: 12.5px; color: var(--text-muted); margin-bottom: 14px; }
-  .acct-modal input { width: 100%; padding: 10px; margin: 5px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--page); color: var(--text); font: inherit; }
+  .acct-modal input { width: 100%; padding: 10px; margin: 5px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--page); color: var(--text-primary); font: inherit; }
   .acct-modal .acct-primary { width: 100%; margin-top: 10px; padding: 11px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
   .acct-modal .acct-primary:disabled { opacity: .5; }
   .acct-links { display: flex; justify-content: space-between; margin-top: 12px; font-size: 13px; }
@@ -308,6 +308,11 @@
   #wlTable tbody tr { cursor: pointer; }
   #wlTable tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
   .wl-chip { border: 1px solid var(--border); border-radius: 999px; padding: 5px 12px; font-size: 13px; cursor: pointer; }
+  .wl-add-input { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--page); color: var(--text-primary); font: inherit; font-size: 13.5px; }
+  .wl-add-results { position: absolute; top: 100%; left: 0; right: 0; z-index: 60; background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; margin-top: 4px; overflow: hidden; box-shadow: 0 8px 24px rgba(5,10,20,.25); }
+  .wl-add-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; font-size: 13.5px; }
+  .wl-add-row:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .wl-add-row .wl-add-name { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
   .wl-chip.buy { color: var(--good); } .wl-chip.sell { color: var(--critical); }
   .detail-name { font-size: 14px; color: var(--text-secondary); }
   .detail-sector { display:flex; align-items:center; gap:6px; font-size: 12px; color: var(--text-muted); margin-top: 4px; }
@@ -828,6 +833,10 @@
         <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">My watchlist
           <button class="refresh-btn" id="acctBtn2">Account</button></div>
         <div class="section-sub" id="wlStatus"></div>
+        <div style="position:relative;margin:8px 0 4px;max-width:420px">
+          <input id="wlAdd" class="wl-add-input" type="search" placeholder="+ Add a stock — type a name or ticker" autocomplete="off">
+          <div id="wlAddResults" class="wl-add-results" style="display:none"></div>
+        </div>
         <div id="wlEmpty" style="display:none;padding:18px 4px;color:var(--text-muted)">
           Nothing starred yet. Open any stock and tap the <b>☆ star</b> next to its ticker to follow it here.
           Signed-out watchlists live on this device only — create an account to keep them across devices.
@@ -3099,8 +3108,41 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
   };
   document.addEventListener('viewchange', e => { if (e.detail === 'watchlist') renderWatchlistView(); });
 
+  // ----- quick-add search on the watchlist tab -----
+  (function wlAdd(){
+    const inp = document.getElementById('wlAdd'), box = document.getElementById('wlAddResults');
+    if (!inp) return;
+    const close = () => { box.style.display = 'none'; };
+    const draw = () => {
+      const q = inp.value.trim().toUpperCase();
+      if (q.length < 1){ close(); return; }
+      const hits = DATA.filter(d => d.ticker.toUpperCase().includes(q) || (d.adr && d.adr.toUpperCase().includes(q)) || d.name.toUpperCase().includes(q)).slice(0, 8);
+      if (!hits.length){ close(); return; }
+      box.innerHTML = '';
+      hits.forEach(d => {
+        const row = document.createElement('div');
+        row.className = 'wl-add-row';
+        const star = document.createElement('span');
+        const paint = () => { star.textContent = STARS.has(d.ticker) ? '★' : '☆'; star.style.color = STARS.has(d.ticker) ? '#e0a80c' : 'var(--text-muted)'; };
+        paint();
+        const tick = document.createElement('b'); tick.textContent = d.ticker;
+        const name = document.createElement('span'); name.className = 'wl-add-name'; name.textContent = d.name;
+        row.append(star, tick, name);
+        row.onclick = () => { vtToggleStar(d.ticker); paint(); };
+        box.appendChild(row);
+      });
+      box.style.display = '';
+    };
+    inp.addEventListener('input', draw);
+    inp.addEventListener('focus', draw);
+    document.addEventListener('click', e => { if (!e.target.closest('#wlAdd') && !e.target.closest('#wlAddResults')) close(); });
+  })();
+
   // ----- modal -----
-  document.body.insertAdjacentHTML('beforeend', `
+  // Injected INSIDE .viz-root: every theme variable (surface/border/accent)
+  // and the font-family live on that wrapper, not on <body> — a body-level
+  // modal renders unstyled serif soup (bug shipped+fixed 2026-07-24).
+  (document.querySelector('.viz-root') || document.body).insertAdjacentHTML('beforeend', `
     <div class="acct-overlay" id="acctOverlay">
       <div class="acct-modal" role="dialog" aria-label="Account">
         <h3 id="amTitle"></h3><div class="acct-sub" id="amSub"></div>
