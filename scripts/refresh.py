@@ -514,7 +514,9 @@ now = datetime.datetime.now(datetime.timezone.utc)
 json.dump({"buy": buy, "sell": sell, "updatedAt": now.isoformat()}, open(f"{STATE}/watchlist-state.json", "w"), indent=1)
 
 # ---------- persist last good data for next run's fallback ----------
-merged_prior = dict(prior_data)
+# prune tickers no longer in the universe (removed foreign lines etc.) so the
+# fallback store — and /prices, which derives its symbol list from it — track the pool
+merged_prior = {t: v for t, v in prior_data.items() if t in current}
 for d in records:
     if d["dataSource"] == "Finnhub (live)":
         merged_prior[d["ticker"]] = d
