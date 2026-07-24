@@ -525,8 +525,10 @@ def change_note(d, past):
     # SMA/RSI state is recomputed from them and compared with today's technicals.
     bits = []
     sd = d.get("scoreDelta")
-    if isinstance(sd, (int, float)) and abs(sd) >= 0.005:
-        bits.append(f"combined score {sd:+.2f}")  # card labels the line "Since yesterday"
+    # combinedScore runs ~0-100 with median daily churn ~5 (v5 percentiles
+    # reshuffle with prices) — only a top-quartile move (>=10) is worth a note
+    if isinstance(sd, (int, float)) and abs(sd) >= 10:
+        bits.append(f"combined score {sd:+.1f}")  # card labels the line "Since yesterday"
     tech = d.get("technicals") or {}
     price = d.get("price")
     y_close = past[-1] if past else None

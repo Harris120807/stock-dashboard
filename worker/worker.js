@@ -615,7 +615,9 @@ async function sendDigests(env, ctx) {
       const sd = typeof d.scoreDelta === 'number' ? d.scoreDelta : null;
       const notes = [];
       if (move !== null && Math.abs(move) >= 5) notes.push((move > 0 ? '▲ up ' : '▼ down ') + Math.abs(move).toFixed(1) + '% today');
-      if (sd !== null && Math.abs(sd) >= 0.05) notes.push('score ' + (sd > 0 ? 'up' : 'down') + ' ' + Math.abs(sd).toFixed(2) + ' vs yesterday');
+      // combinedScore is ~0-100 with ~5 pts of routine daily churn — only a
+      // top-decile move (>=15) counts as an alert-worthy event
+      if (sd !== null && Math.abs(sd) >= 15) notes.push('score ' + (sd > 0 ? 'up' : 'down') + ' ' + Math.abs(sd).toFixed(1) + ' vs yesterday');
       if (notes.length) events.push({ d, notes });
     }
     if (!events.length) continue;
