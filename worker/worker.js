@@ -41,7 +41,7 @@ const ALLOWED = { quote: ['symbol'], metric: ['symbol'], search: ['q'] };
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
 };
 
 function json(obj, status, ttl) {
@@ -382,7 +382,7 @@ async function sendVerifyMail(env, userId, email) {
 async function handleAuth(route, req, env, ctx) {
   if (!env.DB) return json({ error: 'accounts not provisioned yet' }, 503, 0);
   const ip = req.headers.get('CF-Connecting-IP') || 'unknown';
-  const body = req.method === 'POST' ? await req.json().catch(() => null) : null;
+  const body = (req.method === 'POST' || req.method === 'PUT') ? await req.json().catch(() => null) : null;
   const email = body && String(body.email || '').trim().toLowerCase();
 
   if (route === 'auth/signup' && req.method === 'POST') {
