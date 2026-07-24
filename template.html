@@ -128,7 +128,7 @@
 
   .kpi-row {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
     gap: 12px;
     margin-bottom: 20px;
   }
@@ -977,8 +977,14 @@ function renderKpis(){
   const avg = moved.length ? moved.reduce((a,d)=>a+d.dayChange,0) / moved.length : null;
   const big = moved.length ? moved.reduce((a,d)=> Math.abs(d.dayChange) > Math.abs(a.dayChange) ? d : a) : null;
 
+  const EPS = 0.0005;   // ignore float jitter in recomputed scores
+  const scored = DATA.filter(d => typeof d.scoreDelta === 'number');
+  const sUp = scored.filter(d => d.scoreDelta > EPS).length;
+  const sDown = scored.filter(d => d.scoreDelta < -EPS).length;
+
   const tiles = [
     {label:'Advancing Today', value: moved.length ? `<span class="kpi-up${up > down ? ' kpi-big' : ''}">${up}</span> <span class="kpi-vs">vs</span> <span class="kpi-down${down > up ? ' kpi-big' : ''}">${down}</span>` : '—', sub: 'by share price today, not score', cls: ''},
+    {label:'Scores Improving', value: scored.length ? `<span class="kpi-up${sUp > sDown ? ' kpi-big' : ''}">${sUp}</span> <span class="kpi-vs">vs</span> <span class="kpi-down${sDown > sUp ? ' kpi-big' : ''}">${sDown}</span>` : '—', sub: scored.length ? 'combined score vs yesterday' : 'needs one more daily cycle', cls: ''},
     {label:'Average Move Today', value: avg === null ? '—' : fmtPct(avg), sub: 'equal-weight across the set', cls: avg === null ? '' : avg >= 0 ? 'good' : 'critical'},
     {label:'Biggest Mover', value: big ? `${big.ticker} <span class="kpi-big ${big.dayChange >= 0 ? 'kpi-up' : 'kpi-down'}">${fmtPct(big.dayChange)}</span>` : '—', sub: big ? 'largest move today — tap for details' : 'no session data', cls: '', link: big ? big.ticker : null},
     {label:'Valuation Split', value: `<span class="kpi-up${under > over ? ' kpi-big' : ''}">${under}</span> <span class="kpi-vs">vs</span> <span class="kpi-down${over > under ? ' kpi-big' : ''}">${over}</span>`, sub: 'undervalued vs overvalued', cls: ''},

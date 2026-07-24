@@ -593,6 +593,12 @@ for d in records:
         e["t"], e["p"] = [], []
         cl, ts = RESYNC[d["ticker"]]
         dirty = True
+    # score movement vs the last PRIOR-day score point (feeds the overview
+    # "Scores Improving" card; today's provisional point is skipped so intra-day
+    # reruns don't zero the delta)
+    prior_s = next((e["s"][i] for i in range(len(e["st"]) - 1, -1, -1) if e["st"][i] < today_dn), None)
+    d["scoreDelta"] = (round(d["combinedScore"] - prior_s, 4)
+                       if prior_s is not None and d.get("combinedScore") is not None else None)
     dirty |= update_long_history(e, ts, cl, d["combinedScore"], today_dn)
     if dirty:
         json.dump(e, open(f"{STATE}/history/{d['ticker'].replace('/', '_')}.json", "w"), separators=(",", ":"))
