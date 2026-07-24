@@ -362,6 +362,14 @@ FIN_SECTORS = {"Banking", "Financial Services", "Insurance"}
 # pools exclude financials so the structural tilt doesn't distort anyone.
 # Mirror in template.html recomputeDerived — change both together.
 BENCH_KEY = {"pe": "pe", "peg": "peg", "evEbitda": "ev", "roe": "roe"}
+# Sector-relative peer ranking (owner request 2026-07-24): the percentile pool is
+# the stock's OWN SECTOR when at least SECTOR_MIN members have the metric —
+# comparing a bank's P/E to a chip designer's said little. Small/unclassified
+# sectors fall back to the old market pool (fins/non-fins split for pb/ev/roe).
+# The 50/50 blend with the FROZEN sector anchors is unchanged, so a stock in a
+# uniformly-expensive sector still gets pulled down by history. Mirror:
+# recomputeDerived in template.html — change both together.
+SECTOR_MIN = 8
 for metric in ("pe", "peg", "pb", "evEbitda", "roe"):
     for d in records:
         d.setdefault("scoreBreakdown", {})
@@ -369,7 +377,11 @@ for metric in ("pe", "peg", "pb", "evEbitda", "roe"):
         if (metric == "evEbitda" and is_fin) or (metric == "roe" and not is_fin):
             d["scoreBreakdown"][metric] = None
             continue
-        if metric in ("pb", "evEbitda", "roe"):
+        sec = d.get("sector")
+        sec_pool = [x for x in records if sec and x.get("sector") == sec]
+        if sum(1 for x in sec_pool if x.get(metric) and x[metric] > 0) >= SECTOR_MIN:
+            pool = sec_pool
+        elif metric in ("pb", "evEbitda", "roe"):
             pool = [x for x in records if (x.get("sector") in FIN_SECTORS) == is_fin]
         else:
             pool = records

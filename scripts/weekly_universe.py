@@ -18,8 +18,8 @@ OUT = os.environ.get("OUT_DIR", "out")
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 os.makedirs(OUT, exist_ok=True)
 
-SUFFIX_RE = re.compile(r"\b(plc|p\.l\.c\.|n\.v\.|nv|s\.a\.|sa|ag|se|asa|oyj|a/s|ltd|limited|spa|s\.p\.a\.|ab)\.?$", re.I)
-KNOWN_FOREIGN = {"TSM","BABA","RY","TD","BMO","BNS","CM","SU","ENB","CNQ","TRP","PDD","JD","BIDU","NTES","SONY","TCOM","NIO","LI","XPEV","MUFG","SMFG","MFG","TM","IBN","HDB","RIO","SNY"}
+SUFFIX_RE = re.compile(r"\b(plc|p\.l\.c\.|n\.v\.|nv|s\.a\.|sa|ag|se|asa|oyj|a/s|ltd|limited|spa|s\.p\.a\.|ab|s\.?a\.?b\.? de c\.?v\.?|aktiengesellschaft|soci[eé]t[eé] anonyme)\.?$", re.I)
+KNOWN_FOREIGN = {"TSM","BABA","RY","TD","BMO","BNS","CM","SU","ENB","CNQ","TRP","PDD","JD","BIDU","NTES","SONY","TCOM","NIO","LI","XPEV","MUFG","SMFG","MFG","TM","IBN","HDB","RIO","SNY","FMX","PBR","PBR-A","AMX","DB","ITUB","VALE","BBD","NU","ABEV","EC","CX","GGB","SCCO"}
 EUROPE = {"GB","IE","FR","DE","NL","CH","SE","DK","NO","FI","ES","IT","BE","AT","PT","LU","PL","JE","GG","IM"}
 INVERSIONS = {"LIN","ETN","MDT","ACN","TT","JCI","AON","WTW","CB","APTV","PNR","ALLE","STE","IR","GRMN","TEL","ICLR","AMCR","SW","VRT"}
 ADR_FIX = {"DOGEF":"DNNGY","RHHVF":"RHHBY","RHHBF":"RHHBY","NSRGF":"NSRGY","ALIZF":"ALIZY","SBGSF":"SBGSY","EADSF":"EADSY","IBDSF":"IBDRY","DTEGF":"DTEGY","UNCFF":"UNCRY","GLCNF":"GLNCY","MURGF":"MURGY","ENGQF":"ENGIY","BAESF":"BAESY","LVMHF":"LVMUY","SIEGF":"SIEGY","SMEGF":"SMERY"}
@@ -50,7 +50,7 @@ def screen500():
     except Exception: pass  # 404 expected; cookie is what matters
     crumb = opener.open("https://query1.finance.yahoo.com/v1/test/getcrumb", timeout=15).read().decode().strip()
     rows = []
-    for offset in (0, 250, 500):
+    for offset in (0, 250, 500, 750):   # top 750 held only ~269 US-domiciled names — screen 1000 deep
         body = json.dumps({"size": 250, "offset": offset, "sortField": "intradaymarketcap", "sortType": "DESC",
                            "quoteType": "EQUITY", "query": {"operator": "AND", "operands": [{"operator": "EQ", "operands": ["region", "us"]}]}}).encode()
         req = urllib.request.Request(

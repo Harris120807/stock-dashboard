@@ -812,7 +812,7 @@
         <h3>This is not investment advice</h3>
         <p>Everything here is a <b>mechanical screen</b>: formulas applied uniformly to public data. Nothing is a recommendation, a prediction, or advice tailored to you. "Buy candidates" and "sell candidates" mean a formula ranked them highest and lowest — not that anyone thinks you should trade them. Always do your own research; never invest money you can't afford to lose.</p>
         <h3>How the scores work</h3>
-        <p><b>Value Score (0–100):</b> each stock is ranked on valuation multiples — trailing P/E, PEG, Price/Book and EV/EBITDA — against the other stocks here, blended 50/50 with its position in its own sector's frozen market norms (so a bank has to be cheap <i>for a bank</i>, not just cheaper than tech, to score well). Financial companies use the classic bank lens instead: their P/B is ranked only against other financials, ROE (higher = better) joins their score, and EV/EBITDA — which isn't meaningful for banks — is left out. <b>Higher = cheaper.</b> A high score can mean a bargain or a business in trouble — the score can't tell the difference.</p>
+        <p><b>Value Score (0–100):</b> each stock is ranked on valuation multiples — trailing P/E, PEG, Price/Book and EV/EBITDA — against the <i>other stocks in its own sector</i> (sectors with only a handful of names rank against the whole list instead), blended 50/50 with its position in its sector's frozen market norms — so a bank has to be cheap <i>for a bank</i>, not just cheaper than tech, to score well. Financial companies use the classic bank lens instead: their P/B is ranked only against other financials, ROE (higher = better) joins their score, and EV/EBITDA — which isn't meaningful for banks — is left out. <b>Higher = cheaper.</b> A high score can mean a bargain or a business in trouble — the score can't tell the difference.</p>
         <p><b>Indicator Score (~0.5–1.5):</b> blends price-trend signals — the 50-day and 200-day moving averages, golden/death cross, RSI momentum — with the average analyst recommendation. Each component is centered at 1.0: above 1.0 leans positive, below leans negative.</p>
         <p><b>Combined Score = Value Score × Indicator Score.</b> The watchlist is simply the top 3 and bottom 3 by this number.</p>
         <p><b>Absolute Score (0–100):</b> a complementary rating that does <b>not</b> depend on the peer set — each stock is judged against a <b>frozen snapshot of the wider US market</b> (a top-500 cross-section, rebuilt roughly yearly): valuation multiples vs the whole market's distribution (40%), business quality — margins, returns and leverage — vs its <b>own sector's</b> norms (30%), and the analyst view — consensus target upside and buy-recommendation share (30%). Bands: Strong ≥ 70 · Solid ≥ 55 · Mixed ≥ 40 · Stretched ≥ 25 · Weak below. A stock can be cheap relative to peers yet score poorly here (or vice versa) — the two views together are the point. In short: <b>the Value and Combined Scores grade on the curve; the Absolute Score grades against frozen market norms.</b></p>
@@ -1966,9 +1966,14 @@ function recomputeDerived(d){
   const isFin = FIN_SECTORS.includes(d.sector);
   for (const m of ['pe', 'peg', 'pb', 'evEbitda', 'roe']){
     if ((m === 'evEbitda' && isFin) || (m === 'roe' && !isFin)){ bd[m] = null; continue; }
-    const pool = ['pb', 'evEbitda', 'roe'].includes(m)
-      ? DATA.filter(x => FIN_SECTORS.includes(x.sector) === isFin).map(x => x[m])
-      : DATA.map(x => x[m]);
+    // sector-relative pool (>= SECTOR_MIN members with the metric), market/fin fallback
+    // — mirror of refresh.py's value-score block, change both together
+    const secPool = d.sector ? DATA.filter(x => x.sector === d.sector).map(x => x[m]) : [];
+    const pool = secPool.filter(v => v && v > 0).length >= 8
+      ? secPool
+      : ['pb', 'evEbitda', 'roe'].includes(m)
+        ? DATA.filter(x => FIN_SECTORS.includes(x.sector) === isFin).map(x => x[m])
+        : DATA.map(x => x[m]);
     let sc = pctlScore(pool, d[m]);
     if (sc !== null && m === 'roe') sc = Math.round(10 * (100 - sc)) / 10;
     const anc = BENCH && VAL_BENCH_KEY[m] ? ((BENCH.bySector || {})[d.sector] || {})[VAL_BENCH_KEY[m]] : null;
@@ -2060,8 +2065,8 @@ function scoreNarrative(d){
     if (v >= 65) cheap.push('low ' + label); else if (v <= 35) dear.push('high ' + label);
   }
   const finNote = isFin ? ' (ranked against other financials)' : '';
-  if (cheap.length) items.push(['up', `<b>Cheap vs peers</b> — ${list(cheap)}${finNote}`]);
-  if (dear.length) items.push(['down', `<b>Expensive vs peers</b> — ${list(dear)}${finNote}`]);
+  if (cheap.length) items.push(['up', `<b>Cheap vs sector peers</b> — ${list(cheap)}${finNote}`]);
+  if (dear.length) items.push(['down', `<b>Expensive vs sector peers</b> — ${list(dear)}${finNote}`]);
   if (b.roe !== null && b.roe !== undefined){
     if (b.roe >= 65) items.push(['up', `<b>Strong returns</b> — high ROE for a financial (bank lens)`]);
     else if (b.roe <= 35) items.push(['down', `<b>Weak returns</b> — low ROE for a financial (bank lens)`]);
@@ -2235,7 +2240,7 @@ function renderDetailCard(d){
       </div>
     </div>
     ${scoreNarrative(d)}
-    <div class="breakdown-title">Relative value breakdown (vs peers &amp; sector norms — 100 = cheapest)</div>
+    <div class="breakdown-title">Relative value breakdown (vs sector peers &amp; sector norms — 100 = cheapest)</div>
     ${breakdownRow('Trailing P/E', b.pe)}
     ${breakdownRow('PEG', b.peg)}
     ${breakdownRow('P/B', b.pb)}

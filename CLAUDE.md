@@ -82,9 +82,14 @@ FINNHUB_API_KEY=<key> STATE_DIR=state OUT_DIR=/tmp/run NOTIFY=0 python3 scripts/
 - **Classification traps**: the foreign-name regex must match end-anchored, unstripped
   names (`p.l.c.`, `N.V.`); Rio Tinto/Sanofi carry no suffix → in KNOWN_FOREIGN; tax
   inversions (Linde, Eaton, Medtronic, Accenture…) are excluded from "European";
-  GOOG is kept over GOOGL, BRK-B over BRK-A; SKHY/SPCX are treated as US by design.
-- **Scoring (sector-aware since 2026-07-21)**: valueScore = mean of per-metric scores
-  for pe/peg/pb/evEbitda where each metric score = pool percentile (higher = cheaper)
+  GOOG is kept over GOOGL, BRK-B over BRK-A; SKHY/SPCX are treated as US by design;
+  the suffix regex also catches `SAB de CV`/`Aktiengesellschaft`/`Société Anonyme`
+  (2026-07-24 — FMX/PBR/AMX/DB slipped the top-300 screen into the US pool and were
+  hand-removed; LatAm ADRs now in KNOWN_FOREIGN; non-US non-EU names are excluded by design).
+- **Scoring (sector-RELATIVE v5 since 2026-07-24, owner request)**: valueScore = mean of
+  per-metric scores for pe/peg/pb/evEbitda where each metric score = percentile within
+  the stock's OWN SECTOR when ≥8 sector members have the metric (SECTOR_MIN), else the
+  market pool (fins/non-fins split for pb/ev/roe as before); higher = cheaper
   blended 50/50 with the stock's position in its SECTOR's frozen anchors
   (benchmarks.json — pe/peg/ev/roe; no pb anchors exist). FIN_SECTORS
   (Banking/Financial Services/Insurance) use the bank lens (owner-chosen):
