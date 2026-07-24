@@ -6,7 +6,9 @@ Owner-facing sanity check (admin console → Backtest tab), NOT research-grade:
     are invisible, so old scores are approximations.
   - Universe = today's members (survivorship bias: today's winners were
     always "in").
-  - Equal weight, monthly rebalance, no dividends, no costs.
+  - Equal weight, monthly rebalance, no costs. Returns ARE dividend-adjusted
+    (Yahoo adjclose) since 2026-07-25; the stored-shard fallback series is raw
+    close, so a handful of tickers may miss dividends on a Yahoo hiccup.
 
 Method: at each month-end over the last ~4 years, compute an approximate
 combined score per stock (value percentile x technical component, mirroring
@@ -36,14 +38,20 @@ records = json.load(open(f"{STATE}/last-data.json"))
 def fetch_deep(ticker):
     """~10y of daily closes straight from Yahoo. The stored shards cap at 5y
     (right for the site), but 5 years of SAMPLES need a 6th year of forward
-    returns — so this dispatch-only job fetches its own deeper series."""
+    returns — so this dispatch-only job fetches its own deeper series.
+    Uses ADJUSTED closes (dividends + splits) when Yahoo provides them, so
+    forward returns are total returns; raw close is the fallback."""
     url = ("https://query1.finance.yahoo.com/v8/finance/chart/"
            f"{urllib.request.quote(ticker)}?range=10y&interval=1d")
     try:
         req = urllib.request.Request(url, headers=UA)
         res = json.load(urllib.request.urlopen(req, timeout=25))["chart"]["result"][0]
         ts = res.get("timestamp") or []
-        cl = res["indicators"]["quote"][0]["close"]
+        ind = res["indicators"]
+        adj = ((ind.get("adjclose") or [{}])[0]).get("adjclose")
+        cl = ind["quote"][0]["close"]
+        if adj and len(adj) == len(cl):
+            cl = adj
         t, p = [], []
         for tt, cc in zip(ts, cl):
             if cc is not None:
@@ -191,7 +199,7 @@ out = {
         }
         for hz in HORIZONS
     },
-    "caveats": "5-year sample window (10y prices fetched at run time). Reconstructed fundamentals (today's ratios price-scaled), survivorship bias (today's universe), equal weight, no dividends/costs. Rough sanity check only.",
+    "caveats": "5-year sample window (10y dividend-adjusted prices fetched at run time — returns are total returns). Reconstructed fundamentals (today's ratios price-scaled), survivorship bias (today's universe), equal weight, no costs. Rough sanity check only.",
 }
 json.dump(out, open(f"{STATE}/backtest.json", "w"), indent=1)
 print(f"backtest: {n_samples} month-samples, {len(shards)} tickers; 12m Q5={out['horizons']['12m']['quintiles']['5']}% Q1={out['horizons']['12m']['quintiles']['1']}% bench={out['horizons']['12m']['benchmark']}%")

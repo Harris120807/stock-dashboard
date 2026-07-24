@@ -518,11 +518,51 @@ json.dump({"buy": buy, "sell": sell, "updatedAt": now.isoformat()}, open(f"{STAT
 # last-data dump so the alerts digest (Worker cron reads last-data.json) sees
 # it; the page DATA and the Scores Improving card read the same field later
 _today_dn = int(now.timestamp()) // 86400
+
+def change_note(d, past):
+    # Plain-English "what changed" for the detail card. `past` = daily closes up
+    # to YESTERDAY (from the shard, native ccy like d["price"]); yesterday's
+    # SMA/RSI state is recomputed from them and compared with today's technicals.
+    bits = []
+    sd = d.get("scoreDelta")
+    if isinstance(sd, (int, float)) and abs(sd) >= 0.005:
+        bits.append(f"combined score {sd:+.2f}")  # card labels the line "Since yesterday"
+    tech = d.get("technicals") or {}
+    price = d.get("price")
+    y_close = past[-1] if past else None
+    for n, label in ((50, "50-day"), (200, "200-day")):
+        cur = tech.get(f"sma{n}")
+        y_sma = sum(past[-n:]) / n if len(past) >= n else None
+        if price and cur and y_close and y_sma and (price > cur) != (y_close > y_sma):
+            bits.append(f"price crossed {'above' if price > cur else 'below'} its {label} average")
+    def _rsi(closes):
+        if len(closes) < 15:
+            return None
+        gains = losses = 0.0
+        for a, b in zip(closes[-15:-1], closes[-14:]):
+            gains += max(b - a, 0); losses += max(a - b, 0)
+        return 100.0 if losses == 0 else 100 - 100 / (1 + gains / losses)
+    zone = lambda r: None if r is None else ("oversold" if r < 30 else "overbought" if r > 70 else "neutral")
+    z_now, z_prev = zone(tech.get("rsi14")), zone(_rsi(past))
+    if z_now and z_prev and z_now != z_prev:
+        bits.append(f"RSI left {z_prev} territory" if z_now == "neutral"
+                    else f"RSI moved into {z_now} territory")
+    wc = d.get("weekChange")
+    if isinstance(wc, (int, float)) and abs(wc) >= 5:
+        bits.append(f"{wc:+.1f}% over the past week")
+    return " · ".join(bits) if bits else None
+
 for d in records:
     _e = lh_read(d["ticker"])
     _prior = next((_e["s"][i] for i in range(len(_e["st"]) - 1, -1, -1) if _e["st"][i] < _today_dn), None)
     d["scoreDelta"] = (round(d["combinedScore"] - _prior, 4)
                        if _prior is not None and d.get("combinedScore") is not None else None)
+    # one-week price move from the daily shard (weekly digest + what-changed line)
+    _past = [_e["p"][i] for i in range(len(_e["t"])) if _e["t"][i] < _today_dn]
+    _p5 = _past[-5] if len(_past) >= 5 else None
+    d["weekChange"] = (round((d["price"] / _p5 - 1) * 100, 2)
+                       if _p5 and isinstance(d.get("price"), (int, float)) else None)
+    d["changeNote"] = change_note(d, _past)
 
 # prune tickers no longer in the universe (removed foreign lines etc.) so the
 # fallback store — and /prices, which derives its symbol list from it — track the pool
@@ -532,6 +572,38 @@ for d in records:
     if d["dataSource"] == "Finnhub (live)":
         merged_prior[d["ticker"]] = d
 json.dump(list(merged_prior.values()), open(f"{STATE}/last-data.json", "w"), separators=(",", ":"))
+
+# ---------- live track record (2026-07-25): daily watchlist baskets vs market ----------
+# One entry per trading day: the end-of-day buy/sell baskets, plus the day's
+# equal-weight return of the PREVIOUS entry's baskets (mean dayChange) and a
+# whole-universe benchmark; cumulative indices start at 100 when tracking began.
+# Hourly runs overwrite today's provisional entry, so the last run of the day
+# stands; a missed pipeline day simply contributes no return that day.
+# Rendered by the admin console's Track Record tab.
+try:
+    tr = json.load(open(f"{STATE}/track-record.json"))
+except Exception:
+    tr = {"startedAt": now.isoformat(), "days": []}
+_dc = {d["ticker"]: d["dayChange"] for d in records if isinstance(d.get("dayChange"), (int, float))}
+_days = tr["days"]
+if _days and _days[-1]["d"] == _today_dn:
+    _days.pop()  # replace today's provisional entry
+_prev_e = _days[-1] if _days else None
+def _basket_ret(ts):
+    r = [_dc[t] for t in ts if t in _dc]
+    return round(sum(r) / len(r), 4) if r else None
+_entry = {"d": _today_dn, "buy": buy, "sell": sell}
+if _prev_e:
+    _entry["buyRet"] = _basket_ret(_prev_e.get("buy") or [])
+    _entry["sellRet"] = _basket_ret(_prev_e.get("sell") or [])
+    _entry["benchRet"] = round(sum(_dc.values()) / len(_dc), 4) if _dc else None
+    for rk, ik in (("buyRet", "buyIdx"), ("sellRet", "sellIdx"), ("benchRet", "benchIdx")):
+        _entry[ik] = round(_prev_e.get(ik, 100.0) * (1 + (_entry[rk] or 0) / 100), 3)
+else:
+    _entry["buyIdx"] = _entry["sellIdx"] = _entry["benchIdx"] = 100.0
+_days.append(_entry)
+tr["updatedAt"] = now.isoformat()
+json.dump(tr, open(f"{STATE}/track-record.json", "w"), separators=(",", ":"))
 
 # ---------- 30-day hourly price history (chart in the stock detail card) ----------
 # Appends this run's live price per ticker and prunes to a rolling 30 days.
@@ -614,7 +686,7 @@ for d in records:
 # fields); detail-only structures ship in detail-data.json next to index.html,
 # lazily fetched on first stock-card open. Contract with template.html
 # fetchDetail()/mergeDetail — the field list must match what the card renders.
-DETAIL_FIELDS = ("scoreBreakdown", "absBreakdown", "technicals", "dataSource", "adr")
+DETAIL_FIELDS = ("scoreBreakdown", "absBreakdown", "technicals", "dataSource", "adr", "changeNote")
 detail_by = {}
 slim_records = []
 for d in records:

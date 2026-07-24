@@ -369,6 +369,8 @@
   .drivers li.flat::before { content: '\2022'; color: var(--text-muted); font-size: 14px; top: 2px; }
   .drivers-net { font-size: 12.5px; line-height: 1.5; color: var(--text-muted); margin: 6px 0 18px; }
   .drivers-net b { color: var(--text-primary); font-weight: 650; }
+  .drivers-changed { font-size: 12.5px; line-height: 1.5; color: var(--text-secondary); margin: 8px 0 2px; padding: 7px 10px; border-left: 3px solid var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); border-radius: 0 8px 8px 0; }
+  .drivers-changed b { color: var(--text-primary); font-weight: 650; }
   .breakdown-row { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; }
   .breakdown-row .b-label { width: 92px; font-size: 12px; color: var(--text-secondary); flex: none; }
   .breakdown-row .b-track { flex: 1; height: 8px; background: var(--gridline); border-radius: 4px; overflow: hidden; }
@@ -573,6 +575,12 @@
   .gm-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 300; display: none; overflow-y: auto; padding: 4vh 12px 40px; }
   .gm-overlay.open { display: block; }
   .gm-card { max-width: 980px; margin: 0 auto; background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px; padding: 18px; }
+  .screen-panel { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 10px; padding: 10px; border: 1px solid var(--gridline); border-radius: 10px; }
+  .screen-panel select, .screen-panel button {
+    background: var(--page); border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 10px; font-size: 12.5px; color: var(--text-primary); font-family: inherit; max-width: 100%; cursor: pointer;
+  }
+  .screen-panel button { color: var(--text-secondary); font-weight: 600; }
   .gm-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
   .gm-title { font-size: 17px; font-weight: 700; }
   .gm-sub { font-size: 12px; color: var(--text-secondary); margin-bottom: 12px; }
@@ -795,8 +803,42 @@
         <div class="chip" data-filter="Fair Value">Fair Value</div>
         <div class="chip" data-filter="Overvalued">Overvalued</div>
         <div class="chip" id="colModeChip" title="Toggle a slimmed-down set of columns">Compact</div>
+        <div class="chip" id="screenChip" title="Screen by sector, score, P/E, dividends, region">Filters</div>
         <div class="spacer"></div>
         <div class="rowcount" id="rowcount"></div>
+      </div>
+      <div class="screen-panel" id="screenPanel" hidden>
+        <select id="scSector" aria-label="Sector"><option value="">All sectors</option></select>
+        <select id="scScore" aria-label="Minimum combined score">
+          <option value="">Any combined score</option>
+          <option value="1.2">Combined ≥ 1.2</option>
+          <option value="1.1">Combined ≥ 1.1</option>
+          <option value="1.0">Combined ≥ 1.0</option>
+          <option value="0.9">Combined ≥ 0.9</option>
+        </select>
+        <select id="scPe" aria-label="Maximum P/E">
+          <option value="">Any P/E</option>
+          <option value="10">P/E ≤ 10</option>
+          <option value="15">P/E ≤ 15</option>
+          <option value="20">P/E ≤ 20</option>
+          <option value="30">P/E ≤ 30</option>
+        </select>
+        <select id="scDiv" aria-label="Dividend">
+          <option value="">Dividend: any</option>
+          <option value="0.01">Pays a dividend</option>
+          <option value="2">Yield ≥ 2%</option>
+          <option value="4">Yield ≥ 4%</option>
+        </select>
+        <select id="scRegion" aria-label="Region">
+          <option value="">All regions</option>
+          <option value="us">US listings</option>
+          <option value="eu">UK / European listings</option>
+        </select>
+        <span class="spacer"></span>
+        <select id="scSaved" aria-label="Saved screens"><option value="">Saved screens…</option></select>
+        <button type="button" id="scSave" title="Save the current filters as a named screen">Save</button>
+        <button type="button" id="scDelete" title="Delete the selected saved screen" hidden>Delete</button>
+        <button type="button" id="scClear">Clear</button>
       </div>
       <div class="scroll-hint">Swipe the table sideways to see all columns →</div>
       <div class="table-scroll">
@@ -1789,11 +1831,27 @@ function positionBadge(pos){
   return `<span class="badge ${cls}"><span class="dot"></span>${pos}</span>`;
 }
 
+// ---- table screener (2026-07-25): sector / score / P/E / dividend / region ----
+const SCREEN = { sector: '', minScore: null, maxPe: null, minDiv: null, region: '' };
+// European rows are the native listings (dotted symbols) or non-USD currencies;
+// ARM/SPOT trade as plain US lines and deliberately count as US here.
+const isEuRow = d => d.ticker.includes('.') || (d.currency && d.currency !== 'USD');
+function screenPass(d){
+  if (SCREEN.sector && d.sector !== SCREEN.sector) return false;
+  if (SCREEN.minScore !== null && !(typeof d.combinedScore === 'number' && d.combinedScore >= SCREEN.minScore)) return false;
+  if (SCREEN.maxPe !== null && !(typeof d.pe === 'number' && d.pe > 0 && d.pe <= SCREEN.maxPe)) return false;
+  if (SCREEN.minDiv !== null && !(typeof d.divYield === 'number' && d.divYield >= SCREEN.minDiv)) return false;
+  if (SCREEN.region === 'us' && isEuRow(d)) return false;
+  if (SCREEN.region === 'eu' && !isEuRow(d)) return false;
+  return true;
+}
+
 function renderBody(){
   let rows = DATA.filter(d => {
     if (activeFilter !== 'all' && d.position !== activeFilter) return false;
     if (selectedSector && d.colorGroup !== selectedSector) return false;
     if (searchTerm && !(d.ticker.toLowerCase().includes(searchTerm) || d.name.toLowerCase().includes(searchTerm))) return false;
+    if (!screenPass(d)) return false;
     return true;
   });
   rows = [...rows].sort((a,b) => {
@@ -1858,6 +1916,78 @@ document.getElementById('search').addEventListener('input', e => {
   searchTerm = e.target.value.trim().toLowerCase();
   renderBody();
 });
+
+// ---- screener panel wiring ----
+(function(){
+  const panel = document.getElementById('screenPanel');
+  const chip = document.getElementById('screenChip');
+  const els = {
+    sector: document.getElementById('scSector'), minScore: document.getElementById('scScore'),
+    maxPe: document.getElementById('scPe'), minDiv: document.getElementById('scDiv'),
+    region: document.getElementById('scRegion'),
+  };
+  const savedSel = document.getElementById('scSaved');
+  const delBtn = document.getElementById('scDelete');
+  // sector dropdown from the real sectors present, largest first
+  const counts = {};
+  DATA.forEach(d => { if (d.sector) counts[d.sector] = (counts[d.sector] || 0) + 1; });
+  Object.keys(counts).sort((a, b) => counts[b] - counts[a]).forEach(s => {
+    const o = document.createElement('option'); o.value = s; o.textContent = `${s} (${counts[s]})`;
+    els.sector.appendChild(o);
+  });
+  const isActive = () => SCREEN.sector || SCREEN.minScore !== null || SCREEN.maxPe !== null || SCREEN.minDiv !== null || SCREEN.region;
+  function readPanel(){
+    SCREEN.sector = els.sector.value;
+    SCREEN.minScore = els.minScore.value ? parseFloat(els.minScore.value) : null;
+    SCREEN.maxPe = els.maxPe.value ? parseFloat(els.maxPe.value) : null;
+    SCREEN.minDiv = els.minDiv.value ? parseFloat(els.minDiv.value) : null;
+    SCREEN.region = els.region.value;
+    chip.classList.toggle('active', !!isActive() || !panel.hidden);
+    renderBody();
+  }
+  Object.values(els).forEach(el => el.addEventListener('change', () => { savedSel.value = ''; delBtn.hidden = true; readPanel(); }));
+  chip.addEventListener('click', () => {
+    panel.hidden = !panel.hidden;
+    chip.classList.toggle('active', !!isActive() || !panel.hidden);
+  });
+  document.getElementById('scClear').addEventListener('click', () => {
+    Object.values(els).forEach(el => { el.value = ''; });
+    savedSel.value = ''; delBtn.hidden = true;
+    readPanel();
+  });
+  // saved screens — named filter sets in localStorage (device-local)
+  const loadSaved = () => { try { return JSON.parse(localStorage.getItem('vt-screens')) || {}; } catch(e){ return {}; } };
+  function refreshSavedList(){
+    const names = Object.keys(loadSaved()).sort();
+    savedSel.innerHTML = '<option value="">Saved screens…</option>' + names.map(n => `<option>${n.replace(/</g, '&lt;')}</option>`).join('');
+  }
+  document.getElementById('scSave').addEventListener('click', () => {
+    if (!isActive()) { alert('Set some filters first, then save them as a screen.'); return; }
+    const name = (prompt('Name this screen (e.g. "Cheap dividend payers"):') || '').trim().slice(0, 40);
+    if (!name) return;
+    const all = loadSaved();
+    // store the raw select values so restoring can set them back verbatim
+    all[name] = Object.fromEntries(Object.entries(els).map(([k, el]) => [k, el.value]));
+    try { localStorage.setItem('vt-screens', JSON.stringify(all)); } catch(e){}
+    refreshSavedList();
+    savedSel.value = name; delBtn.hidden = false;
+  });
+  savedSel.addEventListener('change', () => {
+    const s = loadSaved()[savedSel.value];
+    delBtn.hidden = !s;
+    if (!s) return;
+    Object.entries(els).forEach(([k, el]) => { el.value = s[k] || ''; });
+    readPanel();
+  });
+  delBtn.addEventListener('click', () => {
+    const all = loadSaved();
+    delete all[savedSel.value];
+    try { localStorage.setItem('vt-screens', JSON.stringify(all)); } catch(e){}
+    refreshSavedList();
+    savedSel.value = ''; delBtn.hidden = true;
+  });
+  refreshSavedList();
+})();
 
 renderHead();
 renderBody();
@@ -2262,8 +2392,13 @@ function scoreNarrative(d){
     }
     net += s + '.';
   }
+  // "what changed" — plain-English day-over-day movement, computed by the
+  // pipeline (changeNote ships in detail-data.json; absent = quiet day)
+  const changed = d.changeNote
+    ? `<div class="drivers-changed"><b>Since yesterday:</b> ${escHtml(d.changeNote)}</div>` : '';
   return `<div class="breakdown-title">Main drivers</div>
     <ul class="drivers">${items.map(([cls, html]) => `<li class="${cls}">${html}</li>`).join('')}</ul>
+    ${changed}
     ${net ? `<div class="drivers-net">${net}</div>` : ''}`;
 }
 
@@ -2286,6 +2421,7 @@ function fetchDetail(){
             if (det.technicals) d.technicals = det.technicals;
             if (det.dataSource) d.dataSource = det.dataSource;
             if (det.adr) d.adr = det.adr;
+            d.changeNote = det.changeNote || null; // absent = quiet day, clear it
             d.earnings = Object.assign({}, d.earnings || {}, det.earnings || {});
           }
           d._detail = true;

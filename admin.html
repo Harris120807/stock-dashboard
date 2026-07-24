@@ -89,6 +89,7 @@ a{color:var(--accent)}
       <button class="atab on" data-atab="overview">Overview</button>
       <button class="atab" data-atab="requests">Requests</button>
       <button class="atab" data-atab="backtest">Backtest</button>
+      <button class="atab" data-atab="track">Track record</button>
     </div>
 
     <div id="atab-overview">
@@ -171,6 +172,25 @@ a{color:var(--accent)}
       <div id="btCharts" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px"></div>
       <div class="msg" id="btMsg"></div>
       <div class="hint" id="btCaveats" style="margin-top:12px"></div>
+    </div>
+    </div>
+
+    <div id="atab-track" class="hidden">
+    <div class="card">
+      <h2>Live pick performance</h2>
+      <div class="hint" id="trMeta" style="margin:0 0 10px"></div>
+      <div class="kpis" style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:12px">
+        <div class="kpi"><b id="trBuy">—</b><span>buy picks</span></div>
+        <div class="kpi"><b id="trSell">—</b><span>sell picks</span></div>
+        <div class="kpi"><b id="trBench">—</b><span>whole universe</span></div>
+        <div class="kpi"><b id="trDays">—</b><span>trading days tracked</span></div>
+      </div>
+      <div id="trChart"></div>
+      <div class="msg" id="trMsg"></div>
+      <div class="hint" style="margin-top:12px">Each day the pipeline logs the live top-3 (buy) and bottom-3 (sell) watchlist
+      baskets; the next day's actual moves are credited to yesterday's picks (equal weight, daily rebalance into whatever
+      the baskets then hold, no costs/dividends). This is the real out-of-sample record from the start date — unlike the
+      Backtest tab, nothing is reconstructed. Short history = low confidence; let it run.</div>
     </div>
     </div>
 
@@ -426,10 +446,11 @@ document.querySelectorAll('[data-wf]').forEach(btn => btn.addEventListener('clic
 
 document.querySelectorAll('.atab').forEach(b => b.addEventListener('click', () => {
   document.querySelectorAll('.atab').forEach(x => x.classList.toggle('on', x === b));
-  ['overview', 'requests', 'backtest'].forEach(t =>
+  ['overview', 'requests', 'backtest', 'track'].forEach(t =>
     document.getElementById('atab-' + t).classList.toggle('hidden', b.dataset.atab !== t));
   if (b.dataset.atab === 'requests') loadRequests();
   if (b.dataset.atab === 'backtest') loadBacktest();
+  if (b.dataset.atab === 'track') loadTrack();
 }));
 
 const BT_URL = 'https://raw.githubusercontent.com/Harris120807/stock-dashboard/claude/state/backtest.json';
@@ -487,6 +508,46 @@ $('btRun').onclick = async () => {
   } catch (e) { $('btMsg').textContent = 'Failed: ' + e.message; $('btMsg').className = 'msg err'; }
   setTimeout(() => { $('btRun').disabled = false; }, 5000);
 };
+
+// ---- live track record (track-record.json, written hourly by refresh.py) ----
+const TR_URL = 'https://raw.githubusercontent.com/Harris120807/stock-dashboard/claude/state/track-record.json';
+async function loadTrack() {
+  const wrap = $('trChart');
+  try {
+    const d = await fetch(TR_URL, { cache: 'no-cache' }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    const days = d.days || [];
+    if (!days.length) throw new Error('empty');
+    const last = days[days.length - 1];
+    const since = new Date(days[0].d * 86400000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    $('trMeta').textContent = `Tracking since ${since} — cumulative value of 100 put into each basket at the start, rebalanced daily into that day's picks. Today: buy ${last.buy.join(' ')} · sell ${last.sell.join(' ')}.`;
+    const fmt = v => (v >= 100 ? '+' : '') + (v - 100).toFixed(1) + '%';
+    $('trBuy').textContent = fmt(last.buyIdx); $('trSell').textContent = fmt(last.sellIdx);
+    $('trBench').textContent = fmt(last.benchIdx); $('trDays').textContent = days.length;
+    const css = getComputedStyle(document.documentElement);
+    const good = css.getPropertyValue('--good').trim(), bad = css.getPropertyValue('--bad').trim(), muted = css.getPropertyValue('--muted').trim();
+    const series = [['buyIdx', good, 'Buy picks'], ['sellIdx', bad, 'Sell picks'], ['benchIdx', muted, 'Universe']];
+    const vals = days.flatMap(e => series.map(s => e[s[0]]).filter(v => v != null));
+    const lo = Math.min(...vals), hi = Math.max(...vals), span = (hi - lo) || 1;
+    const W = 640, H = 220, padB = 20, padT = 10;
+    const x = i => days.length > 1 ? i / (days.length - 1) * W : W / 2;
+    const y = v => padT + (H - padT - padB) * (1 - (v - lo) / span);
+    let s = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:720px">`;
+    s += `<line x1="0" x2="${W}" y1="${y(100)}" y2="${y(100)}" stroke="${muted}" stroke-dasharray="3,4" opacity="0.5"/>`;
+    for (const [k, col, label] of series) {
+      const pts = days.map((e, i) => e[k] != null ? `${x(i).toFixed(1)},${y(e[k]).toFixed(1)}` : null).filter(Boolean);
+      if (pts.length > 1) s += `<polyline points="${pts.join(' ')}" fill="none" stroke="${col}" stroke-width="2"/>`;
+      else if (pts.length === 1) s += `<circle cx="${pts[0].split(',')[0]}" cy="${pts[0].split(',')[1]}" r="3" fill="${col}"/>`;
+    }
+    s += '</svg>';
+    wrap.innerHTML = s + '<div style="display:flex;gap:16px;font-size:12px;margin-top:4px">' +
+      series.map(([, col, label]) => `<span><span style="display:inline-block;width:14px;height:3px;background:${col};vertical-align:middle;margin-right:5px"></span>${label}</span>`).join('') + '</div>';
+    $('trMsg').textContent = '';
+  } catch (e) {
+    wrap.innerHTML = '';
+    $('trMsg').textContent = 'No track record yet — it starts logging with the next hourly refresh and needs at least two trading days to show a line.';
+    $('trMsg').className = 'msg';
+  }
+}
 
 // keep the requests grid live while the console is open (visible tab only)
 setInterval(() => {

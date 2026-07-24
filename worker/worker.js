@@ -285,6 +285,18 @@ async function handleAdmin(route, req, env, ctx) {
     return json({ ok: true, note: 'digest pass completed — emails sent only to opted-in users with events today' }, 200, 0);
   }
 
+  if (route === 'admin/send-weekly' && req.method === 'POST') {
+    // manual trigger for the Saturday weekly wrap (same code the cron runs)
+    await sendWeekly(env, ctx);
+    return json({ ok: true, note: 'weekly wrap pass completed — sent to opted-in verified users' }, 200, 0);
+  }
+
+  if (route === 'admin/deadman-check' && req.method === 'GET') {
+    // ALWAYS a dry run — reports what the dead-man cron would do without ever
+    // pinging the owner's ntfy topic (no test messages there, standing rule)
+    return json(await deadmanCheck(env, true), 200, 0);
+  }
+
   if (route === 'admin/stats') {
     const days = Math.min(30, Math.max(1, parseInt(new URL(req.url).searchParams.get('days') || '7', 10) || 7));
     // Preferred: Analytics Engine SQL (per-route breakdown) — needs a scoped
@@ -619,9 +631,100 @@ async function sendDigests(env, ctx) {
   }
 }
 
+// ---------- dead-man alarm (2026-07-25): is the hourly publish still landing? ----------
+// Cron "15 10-19 * * 1-5" — publish hours are 7:45–19:45 UTC weekdays, so by
+// 10:15 the newest publish should never be older than ~90 min. Alerts the
+// owner's ntfy topic only when watchlist-state.json's updatedAt is >2h old
+// (two consecutive publishes missed) or state can't be read at all, deduped
+// via KV to one alert per 4h so a dead pipeline doesn't spam the phone.
+// dry=true (the /admin/deadman-check route) NEVER sends — the owner topic
+// must not receive test messages.
+const OWNER_NTFY = 'https://ntfy.sh/harris-stockdash-3cb22f88';
+async function deadmanCheck(env, dry) {
+  const out = { staleMinutes: null, wouldAlert: false, alerted: false, dry: !!dry };
+  try {
+    const r = await fetch(STATE_RAW + 'watchlist-state.json');
+    if (!r.ok) throw new Error('state fetch ' + r.status);
+    const upd = Date.parse((await r.json()).updatedAt);
+    out.staleMinutes = Math.round((Date.now() - upd) / 60000);
+    out.wouldAlert = !(out.staleMinutes >= 0) || out.staleMinutes > 120;
+  } catch (e) {
+    out.error = String((e && e.message) || e);
+    out.wouldAlert = true; // unreadable state is itself an alarm condition
+  }
+  if (!out.wouldAlert || dry) return out;
+  const last = Number(await env.CONFIG?.get('deadmanLastAlert')) || 0;
+  if (Date.now() - last < 4 * 3600 * 1000) { out.deduped = true; return out; }
+  await env.CONFIG?.put('deadmanLastAlert', String(Date.now()));
+  await fetch(OWNER_NTFY, {
+    method: 'POST',
+    headers: { 'Title': 'ValueTally pipeline stalled', 'Tags': 'rotating_light',
+               'Click': 'https://github.com/Harris120807/stock-dashboard/actions' },
+    body: out.staleMinutes != null
+      ? `No hourly publish for ${Math.floor(out.staleMinutes / 60)}h${out.staleMinutes % 60}m during market hours. Check GitHub Actions and cron-job.org.`
+      : `Pipeline state is unreadable (${out.error || 'unknown error'}). Check GitHub Actions and the claude/state branch.`,
+  });
+  out.alerted = true;
+  return out;
+}
+
+// ---------- Saturday weekly wrap (2026-07-25) ----------
+// One email per opted-in verified user with a watchlist: the universe's week
+// (top/bottom movers by weekChange, computed by refresh.py from the daily
+// shards), the system watchlist's week (from track-record.json), and the
+// user's own starred stocks' week. Unlike the daily digest this always sends
+// — it's a wrap, not an event alert. Same opt-in flag + unsubscribe link.
+async function sendWeekly(env, ctx) {
+  if (!env.DB || !env.RESEND_API_KEY) return;
+  const r = await fetch(STATE_RAW + 'last-data.json');
+  if (!r.ok) return;
+  const all = await r.json();
+  const by = {};
+  for (const d of all) by[d.ticker] = d;
+  const wk = all.filter(d => typeof d.weekChange === 'number').sort((a, b) => b.weekChange - a.weekChange);
+  if (!wk.length) return;
+  const pct = v => `<span style="color:${v >= 0 ? '#0ca30c' : '#d03b3b'}">${(v >= 0 ? '+' : '') + v.toFixed(1)}%</span>`;
+  const li = d => `<tr><td style="padding:6px 0;border-bottom:1px solid #eef1f6"><b>${d.ticker}</b> <span style="color:#7d8595">${(d.name || '').slice(0, 26)}</span></td><td style="padding:6px 0;border-bottom:1px solid #eef1f6;text-align:right">${pct(d.weekChange)}</td></tr>`;
+  let wlLine = '';
+  try {
+    const tr = await (await fetch(STATE_RAW + 'track-record.json')).json();
+    const days = (tr.days || []).slice(-6);
+    if (days.length) {
+      const f = days[0], l = days[days.length - 1];
+      const inn = [...l.buy.filter(t => !f.buy.includes(t)), ...l.sell.filter(t => !f.sell.includes(t))];
+      const outt = [...f.buy.filter(t => !l.buy.includes(t)), ...f.sell.filter(t => !l.sell.includes(t))];
+      wlLine = `<p style="margin:12px 0 0;font-size:13.5px;color:#4c5566"><b style="color:#1c2534">System watchlist:</b> buy ${l.buy.join(', ')} · sell ${l.sell.join(', ')}` +
+        (inn.length || outt.length ? ` — this week in: ${inn.join(', ') || 'none'}; out: ${outt.join(', ') || 'none'}.` : ' — unchanged this week.') + '</p>';
+    }
+  } catch (e) { /* optional section */ }
+  const users = (await env.DB.prepare(
+    'SELECT u.id, u.email, u.unsub_token, w.tickers FROM users u JOIN watchlists w ON w.user_id = u.id WHERE u.alerts = 1 AND u.verified = 1'
+  ).all()).results || [];
+  for (const u of users) {
+    let list;
+    try { list = JSON.parse(u.tickers); } catch (e) { continue; }
+    const mine = list.map(t => by[t]).filter(d => d && typeof d.weekChange === 'number')
+      .sort((a, b) => b.weekChange - a.weekChange).slice(0, 15);
+    const html = mailWrap(`<p style="margin:0 0 4px;font-size:17px;font-weight:700">Your week on ValueTally</p>
+      <p style="margin:6px 0 12px;color:#4c5566;font-size:13.5px">How the market — and your list — moved this week.</p>
+      ${mine.length ? `<p style="margin:0 0 4px;font-size:13px;font-weight:700;color:#1c2534">Your starred stocks</p>
+      <table style="width:100%;border-collapse:collapse;font-size:14px">${mine.map(li).join('')}</table>` : ''}
+      <p style="margin:14px 0 4px;font-size:13px;font-weight:700;color:#1c2534">Best of the universe</p>
+      <table style="width:100%;border-collapse:collapse;font-size:14px">${wk.slice(0, 5).map(li).join('')}</table>
+      <p style="margin:14px 0 4px;font-size:13px;font-weight:700;color:#1c2534">Worst of the universe</p>
+      <table style="width:100%;border-collapse:collapse;font-size:14px">${wk.slice(-5).reverse().map(li).join('')}</table>
+      ${wlLine}
+      <p style="font-size:12px;color:#7d8595;margin:16px 0 0">Mechanical screen, not investment advice. <a href="https://api.valuetally.com/alerts/unsubscribe?u=${u.unsub_token}" style="color:#7d8595">Unsubscribe from these emails</a>.</p>`);
+    try { await sendMail(env, u.email, 'Your ValueTally weekly wrap', html); } catch (e) { /* next user */ }
+  }
+}
+
 export default {
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(sendDigests(env, ctx));
+    // three crons share this handler — dispatch on the expression
+    if (event.cron === '0 9 * * 6') ctx.waitUntil(sendWeekly(env, ctx));
+    else if (event.cron === '15 10-19 * * 1-5') ctx.waitUntil(deadmanCheck(env, false));
+    else ctx.waitUntil(sendDigests(env, ctx)); // 30 20 * * 1-5 daily digest
   },
   async fetch(req, env, ctx) {
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
