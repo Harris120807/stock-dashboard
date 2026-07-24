@@ -268,14 +268,43 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   only the dashboard's own derived metrics (scores/positions/watchlist) — never
   re-serve raw vendor fields (prices, P/E, fundamentals) through it without a
   data license.** Deploy: REST upload with `keep_bindings: ["secret_text"]` so
-  the Finnhub Worker secret survives script updates (there are TWO Worker
-  secrets now: `FINNHUB_API_KEY` and `GH_TOKEN` — re-set both after a full
-  re-provision).
+  Worker secrets survive script updates (THREE Worker secrets: `FINNHUB_API_KEY`,
+  `GH_TOKEN`, `ADMIN_KEY` — re-set all after a full re-provision).
 - **`/prices` (2026-07-22)**: live-quote endpoint for the page's 45s poller — ONE
   batched Yahoo spark sweep of the whole universe (chunked 20 symbols/request:
   spark 400s above 20), 30s edge cache, so upstream cost is ~2 sweeps/min
   globally regardless of visitors. `/refresh` (POST) dispatches hourly-refresh.yml
   via the GH_TOKEN PAT.
+
+## Admin console (2026-07-24, owner-requested)
+
+- **valuetally.com/admin** — `admin.html` on `claude/state`, published to
+  `/admin/index.html` each refresh. Static + key-gated: the page holds NO
+  secrets; privileged calls send `Authorization: Bearer <ADMIN_KEY>`, which the
+  Worker SHA-256-compares against Worker secret `ADMIN_KEY` (owner holds the
+  key — handed over 2026-07-24; never commit it).
+- **Sections**: Status; Traffic (from `/admin/stats`); Kill-switches
+  (livePrices / fullRefresh / stockRefresh → Worker KV `flags`, namespace
+  `stockdash-config` id f7e94fe4cd224ded94bc270d659a238d, ~60s propagation,
+  fail-open); Visitor-requests grid (reads `requests-log.json` raw, tracked
+  badges, Add stages into the form); Add-stocks form (`SYMBOL` or `NATIVE:ADR`,
+  ≤20/submission → `/admin/add-tickers` → `add-tickers.yml` on main: validate,
+  append to pool, DEEPEN 5y backfill, push state, chain hourly refresh, ntfy;
+  BARC/BCS + TEST hard-blocked in add_tickers.py).
+- **Traffic status (as deployed 2026-07-24)**: `/admin/stats` currently returns
+  "analytics not configured" — the classifier (correctly) refused storing the
+  owner's Global API Key as a Worker secret, and Analytics Engine needs a
+  one-time dashboard enable. To finish: owner enables AE
+  (dash.cloudflare.com → Workers → Analytics Engine) and creates a scoped
+  API token (Account Analytics:Read) → store as Worker secret
+  `CF_ANALYTICS_TOKEN`, re-add the `analytics_engine` binding
+  (name TRAFFIC, dataset stockdash_traffic) and redeploy — worker.js already
+  contains both the logging call (`env.TRAFFIC?.writeDataPoint`, optional so
+  its absence is harmless) and the SQL/GraphQL query paths.
+- **Template kill-switch handling**: `/prices` `{disabled:true}` stops the live
+  poller for that page load; disabled `/quote`//`metric` → "live refresh is
+  currently switched off" in the detail card; `/refresh` 403 shows the
+  owner-disabled message.
 
 ## Multi-agent coordination
 

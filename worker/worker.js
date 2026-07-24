@@ -221,17 +221,40 @@ async function handleAdmin(route, req, env, ctx) {
   }
 
   if (route === 'admin/stats') {
-    if (!env.CF_ANALYTICS_TOKEN) return json({ error: 'analytics token not configured' }, 503, 0);
     const days = Math.min(30, Math.max(1, parseInt(new URL(req.url).searchParams.get('days') || '7', 10) || 7));
-    const sql = `SELECT toStartOfInterval(timestamp, INTERVAL '1' DAY) AS day, blob1 AS route, ` +
-      `sum(_sample_interval) AS requests FROM ${AE_DATASET} ` +
-      `WHERE timestamp > NOW() - INTERVAL '${days}' DAY GROUP BY day, route ORDER BY day ASC`;
-    const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/analytics_engine/sql`, {
-      method: 'POST', headers: { 'Authorization': 'Bearer ' + env.CF_ANALYTICS_TOKEN }, body: sql,
-    });
-    if (!r.ok) return json({ error: 'analytics query failed (' + r.status + ')' }, 502, 0);
-    const data = await r.json();
-    return json({ days, rows: data.data || [] }, 200, 0);
+    // Preferred: Analytics Engine SQL (per-route breakdown) — needs a scoped
+    // API token (Account Analytics:Read); the Global API Key can't call it.
+    if (env.CF_ANALYTICS_TOKEN) {
+      const sql = `SELECT toStartOfInterval(timestamp, INTERVAL '1' DAY) AS day, blob1 AS route, ` +
+        `sum(_sample_interval) AS requests FROM ${AE_DATASET} ` +
+        `WHERE timestamp > NOW() - INTERVAL '${days}' DAY GROUP BY day, route ORDER BY day ASC`;
+      const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/analytics_engine/sql`, {
+        method: 'POST', headers: { 'Authorization': 'Bearer ' + env.CF_ANALYTICS_TOKEN }, body: sql,
+      });
+      if (r.ok) {
+        const data = await r.json();
+        return json({ days, rows: data.data || [] }, 200, 0);
+      }
+    }
+    // Fallback: Workers invocation totals via GraphQL (Global API Key auth) —
+    // daily request counts only, no per-route split.
+    if (env.CF_API_EMAIL && env.CF_API_KEY) {
+      const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+      const q = `{viewer{accounts(filter:{accountTag:"${ACCOUNT_ID}"}){` +
+        `workersInvocationsAdaptive(limit:1000,filter:{scriptName:"stockdash-proxy",date_geq:"${since}"})` +
+        `{sum{requests} dimensions{date}}}}}`;
+      const r = await fetch('https://api.cloudflare.com/client/v4/graphql', {
+        method: 'POST',
+        headers: { 'X-Auth-Email': env.CF_API_EMAIL, 'X-Auth-Key': env.CF_API_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: q }),
+      });
+      if (!r.ok) return json({ error: 'analytics query failed (' + r.status + ')' }, 502, 0);
+      const data = await r.json();
+      const buckets = (((data.data || {}).viewer || {}).accounts || [{}])[0].workersInvocationsAdaptive || [];
+      const rows = buckets.map(b => ({ day: b.dimensions.date, route: 'all routes', requests: b.sum.requests }));
+      return json({ days, rows, note: 'Totals only — add a scoped analytics token for the per-route split.' }, 200, 0);
+    }
+    return json({ error: 'analytics not configured' }, 503, 0);
   }
 
   return json({ error: 'not found' }, 404, 0);

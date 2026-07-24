@@ -239,6 +239,7 @@ async function loadStats() {
   try {
     const d = await authFetch('/admin/stats?days=' + statsDays).then(r => r.json());
     if (d.error) throw new Error(d.error);
+    if (d.note) { $('statsMsg').textContent = d.note; $('statsMsg').className = 'msg'; }
     drawStats(d.rows || []);
   } catch (e) {
     $('statsMsg').textContent = 'Traffic data unavailable: ' + e.message;
