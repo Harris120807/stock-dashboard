@@ -654,11 +654,25 @@ wrapped = ('<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n'
 open(f"{OUT}/index.html", "w").write(wrapped)
 
 print(f"OK live={live}/{len(records)} changed={changed} buy={buy} sell={sell} historyShardsWritten={lh_written} finnhubFallbacks={FB_STATE['n']}")
-body = f"Refreshed — {live}/{len(records)} tickers live."
+# hourly STATUS ping (owner request 2026-07-24): market pulse + score movement
+# + watchlist + pipeline health in one glanceable notification
+_mv = [d for d in records if isinstance(d.get("dayChange"), (int, float))]
+_ups = sum(1 for d in _mv if d["dayChange"] > 0)
+_downs = sum(1 for d in _mv if d["dayChange"] < 0)
+_avg = sum(d["dayChange"] for d in _mv) / len(_mv) if _mv else 0.0
+_big = max(_mv, key=lambda d: abs(d["dayChange"])) if _mv else None
+_sup = sum(1 for d in records if isinstance(d.get("scoreDelta"), (int, float)) and d["scoreDelta"] > 0.0005)
+_sdn = sum(1 for d in records if isinstance(d.get("scoreDelta"), (int, float)) and d["scoreDelta"] < -0.0005)
+body = f"▲{_ups} ▼{_downs} · avg {_avg:+.1f}%"
+if _big:
+    body += f" · mover {_big['ticker']} {_big['dayChange']:+.1f}%"
+body += f"\nScores {_sup}↑ {_sdn}↓ · Buy {' '.join(buy)} · Sell {' '.join(sell)}"
+health = f"\n{live}/{len(records)} live"
+if FB_STATE["n"]:
+    health += f" · {FB_STATE['n']} Finnhub fallbacks"
+body += health
 if changed:
-    body += f" Buy watch: {', '.join(buy)}. Sell watch: {', '.join(sell)}."
-    if entered: body += f" New this run: {', '.join(entered)}."
-    body += " Ranked by value × technical/sentiment score — not investment advice."
+    body += f"\nWATCHLIST CHANGED — new: {', '.join(entered) if entered else '(order only)'}. Not investment advice."
 tomorrow = (now + datetime.timedelta(days=1)).date().isoformat()
 for d in records:
     e = d.get("earnings") or {}
