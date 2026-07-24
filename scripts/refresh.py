@@ -516,6 +516,7 @@ json.dump({"buy": buy, "sell": sell, "updatedAt": now.isoformat()}, open(f"{STAT
 # ---------- persist last good data for next run's fallback ----------
 # prune tickers no longer in the universe (removed foreign lines etc.) so the
 # fallback store — and /prices, which derives its symbol list from it — track the pool
+current = {d["ticker"] for d in records}
 merged_prior = {t: v for t, v in prior_data.items() if t in current}
 for d in records:
     if d["dataSource"] == "Finnhub (live)":
