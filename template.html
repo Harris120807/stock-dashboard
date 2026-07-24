@@ -308,6 +308,24 @@
   #wlTable tbody tr { cursor: pointer; }
   #wlTable tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
   .wl-chip { border: 1px solid var(--border); border-radius: 999px; padding: 5px 12px; font-size: 13px; cursor: pointer; }
+  .sec-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 12px; }
+  .sec-card { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; background: var(--page); cursor: pointer; }
+  .sec-card:hover { border-color: var(--accent); }
+  .sec-card h3 { margin: 0 0 2px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+  .sec-card .sec-n { font-size: 12px; color: var(--text-muted); font-weight: 400; }
+  .sec-stats { display: flex; gap: 14px; margin: 8px 0 6px; font-size: 12.5px; color: var(--text-secondary); flex-wrap: wrap; }
+  .sec-stats b { display: block; font-size: 14.5px; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+  .sec-tops { display: flex; gap: 6px; flex-wrap: wrap; }
+  .sec-top { border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; font-size: 12px; }
+  .sec-members { display: none; margin-top: 10px; border-top: 1px solid var(--border); padding-top: 6px; max-height: 320px; overflow-y: auto; }
+  .sec-card.open .sec-members { display: block; }
+  .sec-mrow { display: flex; justify-content: space-between; gap: 8px; padding: 5px 2px; font-size: 13px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
+  .sec-mrow:hover { color: var(--accent); }
+  .sec-mrow .mname { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  @media (max-width: 480px){
+    .nav-tab span:last-child { display: none; }   /* 8 tabs: icons only on narrow phones */
+    .nav-tab { gap: 0; padding: 9px 0; }
+  }
   .wl-add-input { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--page); color: var(--text-primary); font: inherit; font-size: 13.5px; }
   .wl-add-results { position: absolute; top: 100%; left: 0; right: 0; z-index: 60; background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; margin-top: 4px; overflow: hidden; box-shadow: 0 8px 24px rgba(5,10,20,.25); }
   .wl-add-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; font-size: 13.5px; }
@@ -703,7 +721,8 @@
       <button class="nav-tab" data-view="table"><span class="nav-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M4 10.5h16M4 14.5h16"/></svg></span><span>Table</span></button>
       <button class="nav-tab" data-view="stock"><span class="nav-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.2"/><path d="M15.6 15.6L20 20"/></svg></span><span>Stocks</span></button>
       <button class="nav-tab" data-view="compare"><span class="nav-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l5-5.5 3.8 3L20 7"/><path d="M20 11V7h-4"/></svg></span><span>Compare</span></button>
-      <button class="nav-tab" data-view="watchlist"><span class="nav-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.6l2.2 4.6 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5L4.8 9.9l5-.7z"/></svg></span><span>Watchlist</span></button>
+      <button class="nav-tab" data-view="sectors" title="Sectors"><span class="nav-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg></span><span>Sectors</span></button>
+      <button class="nav-tab" data-view="watchlist" title="Watchlist"><span class="nav-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.6l2.2 4.6 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5L4.8 9.9l5-.7z"/></svg></span><span>Watchlist</span></button>
       <button class="nav-tab" data-view="requests"><span class="nav-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="6" width="17" height="12.5" rx="2"/><path d="M4.5 7.5l7.5 5.7 7.5-5.7"/></svg></span><span>Requests</span></button>
       <button class="nav-tab nav-info" id="navInfo" title="About the scores &amp; data"><span class="nav-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.4"/><path d="M12 11.2V16M12 8.2h.01"/></svg></span><span>Info</span></button>
     </nav>
@@ -826,6 +845,14 @@
         <div class="gm-note" id="gmNote"></div>
       </div>
     </div>
+    </main>
+
+    <main class="view" id="view-sectors">
+      <div class="card">
+        <div class="section-title">Sectors</div>
+        <div class="section-sub">Every sector in the covered set, largest first. Medians are within-sector; scores are the sector-relative combined scores. Tap a sector to see all its members.</div>
+        <div class="sec-grid" id="secGrid"></div>
+      </div>
     </main>
 
     <main class="view" id="view-watchlist">
@@ -1179,7 +1206,7 @@ function drawPriceHistory(d){
     const T = Lh ? Lh.t.map(x => x * 86400) : h.t;
     const P = Lh ? Lh.p : h.p;
     let S = Lh ? null : (h.s || null);
-    if (fiveY && Lh.st && Lh.st.length >= 2){
+    if ((fiveY || oneY) && Lh.st && Lh.st.length >= 2){
       // align the daily score series (own timestamps) onto the price axis
       const sm = {};
       Lh.st.forEach((dn, i) => { sm[dn] = Lh.s[i]; });
@@ -2432,7 +2459,7 @@ function selectStock(ticker, opts){
 }
 
 // ---------- pages / router ----------
-const VIEWS = ['overview', 'table', 'stock', 'compare', 'watchlist', 'requests'];
+const VIEWS = ['overview', 'table', 'stock', 'compare', 'sectors', 'watchlist', 'requests'];
 function showView(name){
   if (!VIEWS.includes(name)) name = 'overview';
   VIEWS.forEach(v => { const el = document.getElementById('view-' + v); if (el) el.classList.toggle('active', v === name); });
@@ -2463,7 +2490,7 @@ function applyHash(){
   // today's ratio with the price path (fundamentals held constant between reports).
   const METRICS = [
     {k:'price',   label:'Price (% change)', ts:true, kind:'pct'},
-    {k:'combinedScore', label:'Combined Score (30d)', ts:true, kind:'score'},
+    {k:'combinedScore', label:'Combined Score', ts:true, kind:'score'},
     {k:'pe',      label:'Trailing P/E', ts:true, kind:'ratio'},
     {k:'pb',      label:'Price / Book', ts:true, kind:'ratio'},
     {k:'ps',      label:'Price / Sales', ts:true, kind:'ratio'},
@@ -2560,6 +2587,12 @@ function applyHash(){
     }
     if (m.kind === 'pct'){ const p0 = P[0]; return p0 ? {T, V: P.map(p => 100 * (p / p0 - 1))} : null; }
     if (m.kind === 'score'){
+      if (st.range === '1y'){
+        // full daily score history from the per-ticker shard (grows over time —
+        // tracking began July 2026, so early lines are short, not missing)
+        const Lh = _phlShards[t];
+        if (Lh && Lh.st && Lh.st.length >= 2) return {T: Lh.st.map(x => x * 86400), V: Lh.s.slice()};
+      }
       const S = h.s || [];
       if (S.filter(x => typeof x === 'number').length < 2) return null;
       return {T: h.t, V: S.map(x => typeof x === 'number' ? x : null)};
@@ -2573,7 +2606,7 @@ function applyHash(){
   function draw(){
     renderChips();
     const m = metric();
-    document.getElementById('gmRange').style.display = (m.ts && m.kind !== 'score') ? '' : 'none';
+    document.getElementById('gmRange').style.display = m.ts ? '' : 'none';
     document.querySelectorAll('#gmRange button').forEach(b => b.classList.toggle('on', b.getAttribute('data-r') === st.range));
     noteEl.textContent = '';
     if (!st.ents.length){
@@ -2584,7 +2617,7 @@ function applyHash(){
     if (!m.ts){ drawBars(m); return; }
     if (typeof fetch !== 'function'){ svg.style.display = 'none'; return; }
     svg.innerHTML = '';
-    const needShards = (st.range === '1y' && m.kind !== 'score')
+    const needShards = st.range === '1y'
       ? [...new Set(st.ents.flatMap(en => en.t ? [en.t] : members(en.sector).map(d => d.ticker)))]
       : [];
     Promise.all([fetchPriceHistory(), ...needShards.map(t => fetchLongHistory(t).catch(() => null))])
@@ -3024,6 +3057,52 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
 })();
 
 // ---------- boot: apply the initial route once all listeners are attached ----------
+// ---------- sector pages (2026-07-24) ----------
+(function sectorPages(){
+  const grid = document.getElementById('secGrid');
+  if (!grid) return;
+  const median = a => { const v = a.filter(x => typeof x === 'number' && isFinite(x)).sort((x, y) => x - y); return v.length ? (v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2) : null; };
+  function render(){
+    if (grid.closest('.view').offsetParent === null) return;
+    const by = {};
+    DATA.forEach(d => { if (d.sector) (by[d.sector] = by[d.sector] || []).push(d); });
+    const secs = Object.entries(by)
+      .map(([name, m]) => ({ name, m, cap: m.reduce((a, d) => a + (d.marketCap || 0), 0) }))
+      .sort((a, b) => b.cap - a.cap);
+    grid.innerHTML = '';
+    secs.forEach(({ name, m, cap }) => {
+      const pe = median(m.map(d => d.pe));
+      const cs = median(m.map(d => d.combinedScore));
+      const moved = m.filter(d => typeof d.dayChange === 'number');
+      const avgMove = moved.length ? moved.reduce((a, d) => a + d.dayChange, 0) / moved.length : null;
+      const tops = m.filter(d => d.combinedScore !== null && d.combinedScore !== undefined)
+        .sort((a, b) => b.combinedScore - a.combinedScore).slice(0, 3);
+      const card = document.createElement('div');
+      card.className = 'sec-card';
+      card.innerHTML = `
+        <h3><span class="sector-dot" style="background:${sectorColor(m[0].colorGroup)}"></span>${name} <span class="sec-n">${m.length} ${m.length === 1 ? 'stock' : 'stocks'} · ${fmtB(cap)}</span></h3>
+        <div class="sec-stats">
+          <span>Median P/E<b>${pe !== null ? fmtNum(pe, 1) : '—'}</b></span>
+          <span>Median score<b>${cs !== null ? fmtNum(cs, 2) : '—'}</b></span>
+          <span>Avg today<b class="${avgMove >= 0 ? 'pos' : 'neg'}">${avgMove !== null ? fmtPct(avgMove) : '—'}</b></span>
+        </div>
+        <div class="sec-tops">${tops.map(d => `<span class="sec-top" data-goto="${d.ticker}">${d.ticker} ${fmtNum(d.combinedScore, 2)}</span>`).join('')}</div>
+        <div class="sec-members">${m.slice().sort((a, b) => (b.combinedScore || 0) - (a.combinedScore || 0)).map(d => `
+          <div class="sec-mrow" data-goto="${d.ticker}"><b>${d.ticker}</b><span class="mname">${d.name}</span>
+          <span class="${(d.dayChange || 0) >= 0 ? 'pos' : 'neg'}">${typeof d.dayChange === 'number' ? fmtPct(d.dayChange) : ''}</span>
+          <span>${d.combinedScore !== null && d.combinedScore !== undefined ? fmtNum(d.combinedScore, 2) : '—'}</span></div>`).join('')}</div>`;
+      card.addEventListener('click', e => {
+        const go = e.target.closest('[data-goto]');
+        if (go){ location.hash = go.getAttribute('data-goto'); return; }
+        card.classList.toggle('open');
+      });
+      grid.appendChild(card);
+    });
+  }
+  document.addEventListener('viewchange', e => { if (e.detail === 'sectors') render(); });
+  render();
+})();
+
 // ---------- accounts + personal watchlist (2026-07-24) ----------
 // Signed out: stars live in localStorage (vt-stars), device-local. Signed in:
 // the server copy (D1 via the Worker) is the source of truth; on sign-in the
