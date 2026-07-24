@@ -220,6 +220,33 @@ async function handleAdmin(route, req, env, ctx) {
     return json({ ok: true, note: 'validating and adding — accepted tickers are live in ~4 min; you get an ntfy with the outcome' }, 200, 0);
   }
 
+  if (route === 'admin/run' && req.method === 'POST') {
+    if (!env.GH_TOKEN) return json({ error: 'not configured' }, 503, 0);
+    let body;
+    try { body = await req.json(); } catch (e) { return json({ error: 'bad json' }, 400, 0); }
+    // whitelist — the PAT can dispatch anything in the repo, the console may not
+    const WFS = {
+      'hourly-refresh': 'hourly-refresh.yml',
+      'daily-analyst': 'daily-analyst.yml',
+      'weekly-universe': 'weekly-universe.yml',
+      'annual-benchmarks': 'annual-benchmarks.yml',
+    };
+    const wf = WFS[body.workflow];
+    if (!wf) return json({ error: 'unknown workflow' }, 400, 0);
+    const payload = { ref: 'main' };
+    if (body.workflow === 'daily-analyst' && body.full) payload.inputs = { full: true };
+    const r = await fetch(`https://api.github.com/repos/${GH_REPO}/actions/workflows/${wf}/dispatches`, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + env.GH_TOKEN, 'Accept': 'application/vnd.github+json',
+        'User-Agent': 'valuetally-admin', 'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    if (r.status !== 204) return json({ error: 'dispatch failed (' + r.status + ')' }, 502, 0);
+    return json({ ok: true, workflow: body.workflow }, 200, 0);
+  }
+
   if (route === 'admin/stats') {
     const days = Math.min(30, Math.max(1, parseInt(new URL(req.url).searchParams.get('days') || '7', 10) || 7));
     // Preferred: Analytics Engine SQL (per-route breakdown) — needs a scoped

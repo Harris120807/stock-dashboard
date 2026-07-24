@@ -93,6 +93,19 @@ a{color:var(--accent)}
     </div>
 
     <div class="card">
+      <h2>Run pipelines</h2>
+      <div class="row">
+        <button class="ghost" data-wf="hourly-refresh">↻ Hourly refresh</button>
+        <button class="ghost" data-wf="daily-analyst">Analyst prefetch</button>
+        <button class="ghost" data-wf="daily-analyst" data-full="1" title="Fetch the Finnhub bundle for the ENTIRE universe (~45 min) instead of today's rotation fifth">Analyst FULL seed</button>
+        <button class="ghost" data-wf="weekly-universe">Universe rescreen</button>
+        <button class="ghost" data-wf="annual-benchmarks" data-confirm="Rebuilding benchmarks re-anchors EVERY absolute score on the site (normally done once a year, in July). Run it now?">Rebuild benchmarks</button>
+      </div>
+      <div class="msg" id="runMsg"></div>
+      <div class="hint">Each button dispatches the real GitHub Actions workflow — same as the scheduled runs. Progress and logs: <a href="https://github.com/Harris120807/stock-dashboard/actions" target="_blank" rel="noopener">Actions</a>. The hourly refresh publishes in ~3 min; analyst rotation ~15 min; universe rescreen ~5 min.</div>
+    </div>
+
+    <div class="card">
       <h2>Kill-switches</h2>
       <div class="toggle"><div class="lbl"><b>Live prices</b><span>45-second price poller on the site (/prices)</span></div>
         <label class="switch"><input type="checkbox" id="fLivePrices"><span class="slider"></span></label></div>
@@ -336,6 +349,20 @@ $('addBtn').onclick = async () => {
   } catch (e) { $('addMsg').textContent = 'Failed: ' + e.message; $('addMsg').className = 'msg err'; }
   $('addBtn').disabled = false;
 };
+
+document.querySelectorAll('[data-wf]').forEach(btn => btn.addEventListener('click', async () => {
+  if (btn.dataset.confirm && !window.confirm(btn.dataset.confirm)) return;
+  btn.disabled = true;
+  $('runMsg').textContent = 'Dispatching ' + btn.textContent.replace('↻ ', '') + '…'; $('runMsg').className = 'msg';
+  try {
+    const r = await authFetch('/admin/run', { method: 'POST', body: JSON.stringify({ workflow: btn.dataset.wf, full: !!btn.dataset.full }) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.status);
+    $('runMsg').textContent = '✓ ' + btn.textContent.replace('↻ ', '') + ' dispatched — watch it on the Actions page.';
+    $('runMsg').className = 'msg ok';
+  } catch (e) { $('runMsg').textContent = 'Failed: ' + e.message; $('runMsg').className = 'msg err'; }
+  setTimeout(() => { btn.disabled = false; }, 5000);   // note: back-to-back re-dispatches within 3 min dedup-skip themselves
+}));
 
 // keep the requests grid live while the console is open (visible tab only)
 setInterval(() => {
