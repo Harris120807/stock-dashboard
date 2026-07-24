@@ -1,52 +1,52 @@
 {
- "runAt": "2026-07-24T22:03:36.672998+00:00",
+ "runAt": "2026-07-24T22:43:45.603819+00:00",
  "samples": 60,
  "tickersUsed": 331,
  "horizons": {
   "1m": {
    "quintiles": {
-    "1": 0.95,
-    "2": 1.19,
-    "3": 1.58,
-    "4": 1.95,
-    "5": 2.66
+    "1": 1.11,
+    "2": 1.29,
+    "3": 1.8,
+    "4": 2.08,
+    "5": 2.87
    },
-   "benchmark": 1.66,
+   "benchmark": 1.83,
    "n": 19414
   },
   "3m": {
    "quintiles": {
-    "1": 2.87,
-    "2": 3.16,
-    "3": 4.44,
-    "4": 5.98,
-    "5": 7.92
+    "1": 3.28,
+    "2": 3.56,
+    "3": 5.18,
+    "4": 6.27,
+    "5": 8.58
    },
-   "benchmark": 4.87,
+   "benchmark": 5.37,
    "n": 19414
   },
   "6m": {
    "quintiles": {
-    "1": 5.93,
-    "2": 7.07,
-    "3": 8.76,
-    "4": 12.82,
-    "5": 16.66
+    "1": 6.69,
+    "2": 7.93,
+    "3": 10.2,
+    "4": 13.54,
+    "5": 18.1
    },
-   "benchmark": 10.23,
+   "benchmark": 11.27,
    "n": 19414
   },
   "12m": {
    "quintiles": {
-    "1": 10.44,
-    "2": 15.29,
-    "3": 20.21,
-    "4": 27.33,
-    "5": 38.86
+    "1": 12.05,
+    "2": 17.04,
+    "3": 23.68,
+    "4": 28.74,
+    "5": 41.81
    },
-   "benchmark": 22.39,
+   "benchmark": 24.63,
    "n": 19414
   }
  },
- "caveats": "5-year sample window (10y prices fetched at run time). Reconstructed fundamentals (today's ratios price-scaled), survivorship bias (today's universe), equal weight, no dividends/costs. Rough sanity check only."
+ "caveats": "5-year sample window (10y dividend-adjusted prices fetched at run time \u2014 returns are total returns). Reconstructed fundamentals (today's ratios price-scaled), survivorship bias (today's universe), equal weight, no costs. Rough sanity check only."
 }
