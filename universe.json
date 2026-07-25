@@ -336,7 +336,8 @@
   "BATS.L",
   "CFR.SW",
   "UBSG.SW",
-  "NWG.L"
+  "NWG.L",
+  "RACE.MI"
  ],
  "us": [
   "NVDA",
@@ -778,6 +779,10 @@
   {
    "ticker": "NWG.L",
    "adr": "NWG"
+  },
+  {
+   "ticker": "RACE.MI",
+   "adr": "RACE"
   }
  ],
  "coreUs": [
@@ -1143,6 +1148,7 @@
   "PCG",
   "PEG",
   "PRU",
+  "RACE.MI:RACE",
   "REZI",
   "RKT",
   "ROP",
