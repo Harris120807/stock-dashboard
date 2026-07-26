@@ -358,10 +358,15 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   unstyled serif soup once). Watchlist tab (`#watchlist` view): quick-add
   search box (client-side name/ticker match, star from results), starred table
   (live-price aware) + system top/bottom-3 chips; star buttons in detail card
-  and watchlist rows. Signed out = localStorage `vt-stars` (device-local);
-  sign-in **union-merges** local+server then server is truth (write-through
-  PUT on every toggle). Session in localStorage `vt-session`; 401 anywhere
-  clears it. Gate carries an "Accounts & privacy" paragraph — keep it honest
+  and watchlist rows. **Watchlists are SIGNED-IN ONLY (owner decision
+  2026-07-25)**: the D1 server copy is the only store — no device-local
+  stars, no union-merge (both existed 07-24→07-25 and were removed after the
+  merge surprised the owner). A signed-out star tap opens the sign-in modal;
+  the watchlist tab shows a sign-in prompt (`#wlSignedOut`, add-box hidden);
+  sign-in REPLACES STARS with the server list; sign-out/delete clears STARS
+  and repaints every star button (`repaintStars()`). Legacy `vt-stars`
+  localStorage is deleted on load. Write-through PUT on every toggle.
+  Session in localStorage `vt-session`; 401 anywhere clears it. Gate carries an "Accounts & privacy" paragraph — keep it honest
   with what's actually stored.
 - **Worker deploys now carry THREE bindings** (kv_namespace CONFIG,
   analytics_engine TRAFFIC, d1 DB) + keep_bindings secret_text; SIX secrets:
@@ -458,7 +463,35 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   `scheduled()` dispatches on `event.cron`.
 - **Backtest returns are dividend-adjusted** since 2026-07-25 (Yahoo
   `adjclose`, fallback raw close; stored-shard fallback stays raw) — the
-  "no dividends" caveat is retired, "no costs" remains.
+  "no dividends" caveat is retired, "no costs" remains. Chart benchmark
+  lines carry a "universe avg +X%" label.
+
+## Insiders / column picker / peers / data-quality / user-stats (2026-07-26 batch)
+
+- **Insider activity**: daily_analyst.py's rotation bundle is now SEVEN
+  Finnhub calls (+insider-transactions, 90d window, ADR symbol for EU rows);
+  build() counts ONLY open-market codes P (buys) and S (sales) — option
+  exercises/awards/withholdings (M/A/F/G) are noise by design. Ships as
+  `insiders: {b, s}` in analyst-state → refresh.py `d["insiders"]` →
+  DETAIL_FIELDS → "Insiders (90d)" tile in the detail card's tech grid
+  ("—" until a ticker's first post-change rotation fetch; FULL seed run
+  2026-07-26 populated the whole universe).
+- **Column picker**: "Columns" chip on #table opens a checkbox panel;
+  custom set in localStorage `vt-cols` (ticker column forced on). Custom
+  OVERRIDES full/compact; the Compact chip clears it. Reset button returns
+  to full.
+- **Sector peers table**: detail card shows the 4 largest same-sector peers
+  + self (highlighted) with mktcap/P/E/div/combined; rows navigate via a
+  delegated `[data-peer]` click handler; hidden when <2 peers or no sector.
+- **Data-quality monitor**: refresh.py writes `data-quality.json` on
+  claude/state each run (advisory, nothing auto-corrected): P/E ratio jumps
+  >5x, currency flips, price jumps >±67% outside split-guard resyncs,
+  mktcap swings >3x, missing prices; capped 40 issues. hourly-refresh.yml
+  `git add`s it (PR #21). Admin Status card renders the "Data health" line
+  from it (✓ clean / ⚠ list).
+- **Admin user-stats**: `GET /admin/user-stats` (D1 aggregate counts only —
+  no emails leave the DB): users/verified/alerts/non-empty watchlists;
+  four KPI tiles on the admin Status card.
 
 ## Multi-agent coordination
 
