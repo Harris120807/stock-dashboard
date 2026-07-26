@@ -553,12 +553,31 @@ async function fxRate(env, from, to) {
 }
 
 // raw T212 /equity/portfolio array -> our position shape, with per-position
-// instrument currency and account-currency value when FX is resolvable
-async function t212Positions(env, rawPf, acctCcy) {
+// instrument currency and account-currency value when FX is resolvable.
+// Currency comes from T212's OWN instrument metadata (LSE mixes GBX equities
+// with GBP-priced ETFs — the suffix alone misled by 100x); the metadata list
+// (~4MB) is fetched only when unseen tickers appear and the needed entries are
+// cached 30d in one KV map. Suffix heuristic is the fallback (keys without
+// the metadata permission 403 there).
+async function t212Positions(env, rawPf, acctCcy, envName, cred) {
   const positions = (Array.isArray(rawPf) ? rawPf : []).map(p => ({
     t212: p.ticker, qty: p.quantity, avgPrice: p.averagePrice, price: p.currentPrice,
-    ppl: p.ppl ?? null, fxPpl: p.fxPpl ?? null, ccy: t212Ccy(p.ticker), valueAcct: null,
+    ppl: p.ppl ?? null, fxPpl: p.fxPpl ?? null, ccy: null, valueAcct: null,
   }));
+  let map = {};
+  try { map = JSON.parse((await env.CONFIG?.get('t212ccymap', { cacheTtl: 3600 })) || '{}'); } catch (e) { /* fresh map */ }
+  if (positions.some(p => !map[p.t212]) && envName && cred) {
+    try {
+      const r = await t212Fetch(envName, '/equity/metadata/instruments', cred);
+      if (r.ok) {
+        const need = new Set(positions.map(p => p.t212));
+        for (const x of await r.json()) if (need.has(x.ticker) && x.currencyCode) map[x.ticker] = x.currencyCode;
+      }
+    } catch (e) { /* metadata unavailable — heuristic below */ }
+    for (const p of positions) if (!map[p.t212]) { const g = t212Ccy(p.t212); if (g) map[p.t212] = g; }
+    try { await env.CONFIG?.put('t212ccymap', JSON.stringify(map), { expirationTtl: 30 * 86400 }); } catch (e) { /* cache only */ }
+  }
+  for (const p of positions) p.ccy = map[p.t212] || t212Ccy(p.t212);
   if (acctCcy) {
     const rates = {};
     for (const c of new Set(positions.map(p => p.ccy).filter(Boolean))) rates[c] = await fxRate(env, c, acctCcy);
@@ -822,7 +841,7 @@ async function handleAuth(route, req, env, ctx) {
       if (currency) await env.CONFIG?.put('t212cur:' + u.id, currency, { expirationTtl: 30 * 86400 });
       // prime the portfolio cache with the validation response — the page loads
       // holdings right after connecting, and T212 only allows ~1 req/5s
-      const positions = await t212Positions(env, rawPf, currency);
+      const positions = await t212Positions(env, rawPf, currency, t212env, key);
       // no currency (account/info rate-limited during connect) -> short-lived
       // prime only, so the next fetch resolves the currency and converts values
       await env.CONFIG?.put('t212:' + u.id, JSON.stringify(
@@ -876,8 +895,15 @@ async function handleAuth(route, req, env, ctx) {
         }
       } catch (e) { /* label only */ }
     }
-    const positions = await t212Positions(env, raw, currency);
-    const out = { connected: true, env: row.env, currency, positions, fetchedAt: new Date().toISOString() };
+    const positions = await t212Positions(env, raw, currency, row.env, key);
+    // account cash/total (needs the Account-data permission — skipped silently
+    // without it) lets the page reconcile with the T212 app's headline number
+    let cash = null;
+    try {
+      const rc = await t212Fetch(row.env, '/equity/account/cash', key);
+      if (rc.ok) { const c = await rc.json(); cash = { free: c.free ?? null, total: c.total ?? null, invested: c.invested ?? null, ppl: c.ppl ?? null }; }
+    } catch (e) { /* optional */ }
+    const out = { connected: true, env: row.env, currency, positions, cash, fetchedAt: new Date().toISOString() };
     try { await env.CONFIG?.put('t212:' + u.id, JSON.stringify(out), { expirationTtl: 60 }); } catch (e) { /* cache only */ }
     return json(out, 200, 0);
   }

@@ -3743,7 +3743,10 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
     }).join('');
     table.querySelector('tbody').innerHTML = body +
       `<tr class="pf-total"><td>Total</td><td></td><td></td><td></td><td class="num">${anyAcct ? pfMoney(totV) + (totVAll ? '' : '*') : '—'}</td><td class="num ${totP >= 0 ? 'pos' : 'neg'}">${(totP >= 0 ? '+' : '') + pfMoney(totP)}</td></tr>`;
-    note.textContent = `${rows.length} position${rows.length === 1 ? '' : 's'}${matched ? `, ${matched} covered here — tap a ticker for its scores` : ''}. Prices are in each instrument's own currency; values and P/L are converted to your account currency${totVAll ? '' : ' (* total excludes positions whose currency could not be converted)'}. Read-only — nothing on this page can trade.`;
+    const cash = d.cash || {};
+    const cashLine = (cash.total !== null && cash.total !== undefined && cash.free !== null && cash.free !== undefined)
+      ? `Account total ${pfMoney(cash.total)} — positions plus ${pfMoney(cash.free)} free cash. ` : '';
+    note.textContent = cashLine + `${rows.length} position${rows.length === 1 ? '' : 's'}${matched ? `, ${matched} covered here — tap a ticker for its scores` : ''}. Prices are in each instrument's own currency; values and P/L are converted to your account currency${totVAll ? '' : ' (* total excludes positions whose currency could not be converted)'}. Read-only — nothing on this page can trade.`;
   }
 
   window.renderPortfolioView = function(){
