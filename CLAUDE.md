@@ -463,7 +463,35 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   `scheduled()` dispatches on `event.cron`.
 - **Backtest returns are dividend-adjusted** since 2026-07-25 (Yahoo
   `adjclose`, fallback raw close; stored-shard fallback stays raw) — the
-  "no dividends" caveat is retired, "no costs" remains.
+  "no dividends" caveat is retired, "no costs" remains. Chart benchmark
+  lines carry a "universe avg +X%" label.
+
+## Insiders / column picker / peers / data-quality / user-stats (2026-07-26 batch)
+
+- **Insider activity**: daily_analyst.py's rotation bundle is now SEVEN
+  Finnhub calls (+insider-transactions, 90d window, ADR symbol for EU rows);
+  build() counts ONLY open-market codes P (buys) and S (sales) — option
+  exercises/awards/withholdings (M/A/F/G) are noise by design. Ships as
+  `insiders: {b, s}` in analyst-state → refresh.py `d["insiders"]` →
+  DETAIL_FIELDS → "Insiders (90d)" tile in the detail card's tech grid
+  ("—" until a ticker's first post-change rotation fetch; FULL seed run
+  2026-07-26 populated the whole universe).
+- **Column picker**: "Columns" chip on #table opens a checkbox panel;
+  custom set in localStorage `vt-cols` (ticker column forced on). Custom
+  OVERRIDES full/compact; the Compact chip clears it. Reset button returns
+  to full.
+- **Sector peers table**: detail card shows the 4 largest same-sector peers
+  + self (highlighted) with mktcap/P/E/div/combined; rows navigate via a
+  delegated `[data-peer]` click handler; hidden when <2 peers or no sector.
+- **Data-quality monitor**: refresh.py writes `data-quality.json` on
+  claude/state each run (advisory, nothing auto-corrected): P/E ratio jumps
+  >5x, currency flips, price jumps >±67% outside split-guard resyncs,
+  mktcap swings >3x, missing prices; capped 40 issues. hourly-refresh.yml
+  `git add`s it (PR #21). Admin Status card renders the "Data health" line
+  from it (✓ clean / ⚠ list).
+- **Admin user-stats**: `GET /admin/user-stats` (D1 aggregate counts only —
+  no emails leave the DB): users/verified/alerts/non-empty watchlists;
+  four KPI tiles on the admin Status card.
 
 ## Multi-agent coordination
 
