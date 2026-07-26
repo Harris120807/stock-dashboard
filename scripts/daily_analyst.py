@@ -59,6 +59,7 @@ today = datetime.date.today()
 # week (upcoming section). The recent-results section filters to the past week client-side.
 frm, to = (today - datetime.timedelta(days=370)).isoformat(), (today + datetime.timedelta(days=7)).isoformat()
 news_frm = (today - datetime.timedelta(days=7)).isoformat()
+ins_frm = (today - datetime.timedelta(days=90)).isoformat()  # insider-transactions window
 
 def fetch_news_only(sym):
     ck = f"{OUT}/ck/news-{sym.replace('/', '_')}.json"
@@ -80,7 +81,8 @@ def fetch(sym):
     # via fundamentals-state.json instead of being refetched every hour.
     prof = get(f"https://finnhub.io/api/v1/stock/profile2?symbol={sym}&token={KEY}") or {}; time.sleep(FH_PACE)
     met = (get(f"https://finnhub.io/api/v1/stock/metric?symbol={sym}&metric=all&token={KEY}") or {}).get("metric", {}); time.sleep(FH_PACE)
-    b = {"rec": rec, "cal": cal, "hist": hist, "news": news, "profile": prof, "metric": met}
+    ins = get(f"https://finnhub.io/api/v1/stock/insider-transactions?symbol={sym}&from={ins_frm}&to={today.isoformat()}&token={KEY}"); time.sleep(FH_PACE)
+    b = {"rec": rec, "cal": cal, "hist": hist, "news": news, "profile": prof, "metric": met, "ins": ins}
     json.dump(b, open(ck, "w"))
     return b
 
@@ -115,7 +117,18 @@ def build(ticker, sym):
         return round((a - est) / abs(est) * 100, 1) if (a is not None and est) else None
     reports = [{"d": x["date"], "sp": _sp(x)} for x in reported[-5:]]
     q4 = [x for x in (b["hist"] or [])[:4] if x and x.get("surprisePercent") is not None]
-    return {"analystScore": a_score, "analystRec": a_rec,
+    # Insider activity, last 90d: only open-market purchases (code P) and sales
+    # (code S) count — option exercises/awards/tax withholdings (M/A/F/G…) are
+    # routine plumbing, not conviction signals.
+    ins_b = ins_s = 0
+    try:
+        for x in ((b.get("ins") or {}).get("data") or []):
+            c = x.get("transactionCode")
+            if c == "P": ins_b += 1
+            elif c == "S": ins_s += 1
+    except Exception: pass
+    insiders = {"b": ins_b, "s": ins_s} if (ins_b or ins_s or (b.get("ins") or {}).get("data") is not None) else None
+    return {"analystScore": a_score, "analystRec": a_rec, "insiders": insiders,
                   "earnings": {"nextDate": e0.get("date") if e0 else None,
                                "nextHour": e0.get("hour") if e0 else None,
                                "epsEstimate": e0.get("epsEstimate") if e0 else None,

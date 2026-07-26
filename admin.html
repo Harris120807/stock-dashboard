@@ -99,7 +99,12 @@ a{color:var(--accent)}
         <div class="kpi"><b id="stUpdated">—</b><span>last data refresh</span></div>
         <div class="kpi"><b id="stCount">—</b><span>stocks tracked</span></div>
         <div class="kpi"><b id="stWatch">—</b><span>watchlist (buy / sell)</span></div>
+        <div class="kpi"><b id="usTotal">—</b><span>accounts</span></div>
+        <div class="kpi"><b id="usVerified">—</b><span>verified</span></div>
+        <div class="kpi"><b id="usAlerts">—</b><span>alert opt-ins</span></div>
+        <div class="kpi"><b id="usWl">—</b><span>active watchlists</span></div>
       </div>
+      <div class="hint" id="dqLine">Data health: checking…</div>
       <div class="hint">Pipeline runs and logs: <a href="https://github.com/Harris120807/stock-dashboard/actions" target="_blank" rel="noopener">GitHub Actions</a></div>
     </div>
 
@@ -224,7 +229,28 @@ $('loginBtn').onclick = () => { KEY = $('keyIn').value.trim(); localStorage.setI
 $('keyIn').addEventListener('keydown', e => { if (e.key === 'Enter') $('loginBtn').click(); });
 $('logoutBtn').onclick = () => { localStorage.removeItem('vt-admin-key'); location.reload(); };
 
-function loadAll() { loadStatus(); loadConfig(); loadStats(); loadRequests(); }
+function loadAll() { loadStatus(); loadConfig(); loadStats(); loadRequests(); loadUserStats(); loadDataQuality(); }
+
+async function loadUserStats() {
+  try {
+    const d = await authFetch('/admin/user-stats').then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    $('usTotal').textContent = d.users; $('usVerified').textContent = d.verified;
+    $('usAlerts').textContent = d.alerts; $('usWl').textContent = d.watchlists;
+  } catch (e) { /* tiles stay em-dashed */ }
+}
+
+const DQ_URL = 'https://raw.githubusercontent.com/Harris120807/stock-dashboard/claude/state/data-quality.json';
+async function loadDataQuality() {
+  const el = $('dqLine');
+  try {
+    const d = await fetch(DQ_URL, { cache: 'no-cache' }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    const iss = d.issues || [];
+    el.innerHTML = iss.length
+      ? '⚠ Data health: ' + iss.length + ' flag' + (iss.length === 1 ? '' : 's') + ' this run — ' +
+        iss.slice(0, 6).map(x => `<b>${x.t}</b> (${x.msg})`).join(' · ') + (iss.length > 6 ? ' …' : '')
+      : '✓ Data health: no anomalies flagged in the last refresh.';
+  } catch (e) { el.textContent = 'Data health: no report yet (appears after the next hourly refresh).'; }
+}
 
 const REQ_LOG = 'https://raw.githubusercontent.com/Harris120807/stock-dashboard/claude/state/requests-log.json';
 const REQ_TOPIC = 'harris-stockdash-req-a2962152';
@@ -481,7 +507,11 @@ async function loadBacktest() {
         s += `<text x="${i * bw + bw / 2}" y="${labY}" text-anchor="middle" font-size="10" fill="currentColor">${v > 0 ? '+' : ''}${v}%</text>`;
         s += `<text x="${i * bw + bw / 2}" y="${H - 6}" text-anchor="middle" font-size="10" fill="${muted}">Q${q}</text>`;
       });
-      if (h.benchmark !== null) s += `<line x1="0" x2="${W}" y1="${y(h.benchmark)}" y2="${y(h.benchmark)}" stroke="${muted}" stroke-dasharray="4,3"/>`;
+      if (h.benchmark !== null) {
+        const by = y(h.benchmark);
+        s += `<line x1="0" x2="${W}" y1="${by}" y2="${by}" stroke="${muted}" stroke-dasharray="4,3"/>`;
+        s += `<text x="2" y="${by - 3}" font-size="8.5" fill="${muted}">universe avg ${h.benchmark > 0 ? '+' : ''}${h.benchmark}%</text>`;
+      }
       s += '</svg>';
       const box = document.createElement('div');
       const title = document.createElement('div');

@@ -291,6 +291,18 @@ async function handleAdmin(route, req, env, ctx) {
     return json({ ok: true, note: 'weekly wrap pass completed — sent to opted-in verified users' }, 200, 0);
   }
 
+  if (route === 'admin/user-stats' && req.method === 'GET') {
+    // aggregate account counts only — no emails or per-user data leave D1
+    if (!env.DB) return json({ error: 'accounts not provisioned' }, 503, 0);
+    const u = (await env.DB.prepare(
+      'SELECT COUNT(*) AS total, COALESCE(SUM(verified),0) AS verified, COALESCE(SUM(alerts),0) AS alerts FROM users'
+    ).first()) || {};
+    const w = (await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM watchlists WHERE tickers IS NOT NULL AND tickers != '[]'"
+    ).first()) || {};
+    return json({ users: u.total || 0, verified: u.verified || 0, alerts: u.alerts || 0, watchlists: w.n || 0 }, 200, 0);
+  }
+
   if (route === 'admin/deadman-check' && req.method === 'GET') {
     // ALWAYS a dry run — reports what the dead-man cron would do without ever
     // pinging the owner's ntfy topic (no test messages there, standing rule)

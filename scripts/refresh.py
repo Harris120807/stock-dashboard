@@ -269,6 +269,7 @@ def build_record(ticker, sym):
         tb["cross"] = 1.15 if cross == "golden" else 0.85
     d["technicals"] = {"sma50": sma50, "sma200": sma200, "rsi14": rsi, "crossState": cross,
                        "analystRec": a.get("analystRec"), "scoreBreakdown": tb}
+    d["insiders"] = a.get("insiders")  # {b, s} open-market buys/sells last 90d (daily job); None until first fetch
     e = a.get("earnings") or {"nextDate": None, "nextHour": None, "epsEstimate": None,
                               "revenueEstimate": None, "beatCount": None, "beatTotal": None}
     # Finnhub's earnings calendar reports foreign issuers in their *reporting*
@@ -575,6 +576,34 @@ for d in records:
         merged_prior[d["ticker"]] = d
 json.dump(list(merged_prior.values()), open(f"{STATE}/last-data.json", "w"), separators=(",", ":"))
 
+# ---------- data-quality monitor (2026-07-25): flag suspicious records ----------
+# Advisory only — nothing is auto-corrected. Compares this run against the
+# prior snapshot and writes data-quality.json for the admin Status card, so
+# vendor glitches (unit flips, bogus fundamentals) surface without waiting for
+# a weird-looking stock page. Split-guard resyncs are expected price jumps.
+_dq = []
+for d in records:
+    t = d["ticker"]
+    p = prior_data.get(t) or {}
+    def _n(v): return v if isinstance(v, (int, float)) else None
+    pe_now, pe_old = _n(d.get("pe")), _n(p.get("pe"))
+    if pe_now and pe_old and pe_now > 0 and pe_old > 0 and not (0.2 < pe_now / pe_old < 5):
+        _dq.append({"t": t, "msg": f"P/E {pe_old:.0f}→{pe_now:.0f}"})
+    if p.get("currency") and d.get("currency") and p["currency"] != d["currency"]:
+        _dq.append({"t": t, "msg": f"currency {p['currency']}→{d['currency']}"})
+    pr_now, pr_old = _n(d.get("price")), _n(p.get("price"))
+    if pr_now and pr_old and t not in RESYNC and not (0.6 < pr_now / pr_old < 1.67):
+        _dq.append({"t": t, "msg": f"price jump {pr_old:g}→{pr_now:g}"})
+    mc_now, mc_old = _n(d.get("marketCap")), _n(p.get("marketCap"))
+    if mc_now and mc_old and not (1 / 3 < mc_now / mc_old < 3):
+        _dq.append({"t": t, "msg": f"mktcap {mc_old:.0f}B→{mc_now:.0f}B"})
+    if pr_now is None:
+        _dq.append({"t": t, "msg": "no price"})
+json.dump({"updatedAt": now.isoformat(), "issues": _dq[:40]},
+          open(f"{STATE}/data-quality.json", "w"), separators=(",", ":"))
+if _dq:
+    print(f"data-quality: {len(_dq)} flags: " + "; ".join(f"{x['t']} {x['msg']}" for x in _dq[:10]))
+
 # ---------- live track record (2026-07-25): daily watchlist baskets vs market ----------
 # One entry per trading day: the end-of-day buy/sell baskets, plus the day's
 # equal-weight return of the PREVIOUS entry's baskets (mean dayChange) and a
@@ -688,7 +717,7 @@ for d in records:
 # fields); detail-only structures ship in detail-data.json next to index.html,
 # lazily fetched on first stock-card open. Contract with template.html
 # fetchDetail()/mergeDetail — the field list must match what the card renders.
-DETAIL_FIELDS = ("scoreBreakdown", "absBreakdown", "technicals", "dataSource", "adr", "changeNote")
+DETAIL_FIELDS = ("scoreBreakdown", "absBreakdown", "technicals", "dataSource", "adr", "changeNote", "insiders")
 detail_by = {}
 slim_records = []
 for d in records:

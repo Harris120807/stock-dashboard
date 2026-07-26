@@ -371,6 +371,13 @@
   .drivers-net b { color: var(--text-primary); font-weight: 650; }
   .drivers-changed { font-size: 12.5px; line-height: 1.5; color: var(--text-secondary); margin: 8px 0 2px; padding: 7px 10px; border-left: 3px solid var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); border-radius: 0 8px 8px 0; }
   .drivers-changed b { color: var(--text-primary); font-weight: 650; }
+  .peer-tbl { border-collapse: collapse; font-size: 12.5px; }
+  .peer-tbl th { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); font-weight: 600; padding: 5px 10px; text-align: right; border-bottom: 1px solid var(--gridline); }
+  .peer-tbl td { padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--gridline); color: var(--text-secondary); }
+  .peer-tbl th.al, .peer-tbl td.al { text-align: left; }
+  .peer-tbl td b { color: var(--text-primary); }
+  .peer-tbl tr[data-peer]:hover td { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+  .peer-tbl .peer-self td { background: color-mix(in srgb, var(--accent) 9%, transparent); }
   .breakdown-row { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; }
   .breakdown-row .b-label { width: 92px; font-size: 12px; color: var(--text-secondary); flex: none; }
   .breakdown-row .b-track { flex: 1; height: 8px; background: var(--gridline); border-radius: 4px; overflow: hidden; }
@@ -803,10 +810,12 @@
         <div class="chip" data-filter="Fair Value">Fair Value</div>
         <div class="chip" data-filter="Overvalued">Overvalued</div>
         <div class="chip" id="colModeChip" title="Toggle a slimmed-down set of columns">Compact</div>
+        <div class="chip" id="colPickChip" title="Choose exactly which columns to show">Columns</div>
         <div class="chip" id="screenChip" title="Screen by sector, score, P/E, dividends, region">Filters</div>
         <div class="spacer"></div>
         <div class="rowcount" id="rowcount"></div>
       </div>
+      <div class="screen-panel" id="colPanel" hidden></div>
       <div class="screen-panel" id="screenPanel" hidden>
         <select id="scSector" aria-label="Sector"><option value="">All sectors</option></select>
         <select id="scScore" aria-label="Minimum combined score">
@@ -1810,7 +1819,11 @@ const COLS = [
 let colMode = 'full';
 try { colMode = localStorage.getItem('colMode') || 'full'; } catch(e){}
 const COMPACT_COLS = new Set(['rank','ticker','price','dayChange','spark','marketCap','pe','valueScore','combinedScore','absoluteScore','position']);
-const visibleCols = () => colMode === 'compact' ? COLS.filter(c => COMPACT_COLS.has(c.key)) : COLS;
+// column picker (2026-07-25): a custom set overrides full/compact; ticker always stays
+let customCols = null;
+try { const _cc = JSON.parse(localStorage.getItem('vt-cols') || 'null'); if (Array.isArray(_cc) && _cc.length) customCols = new Set(_cc); } catch(e){}
+const visibleCols = () => customCols ? COLS.filter(c => c.key === 'ticker' || customCols.has(c.key))
+                        : colMode === 'compact' ? COLS.filter(c => COMPACT_COLS.has(c.key)) : COLS;
 
 let sortKey = 'valueScore', sortDir = -1;
 let activeFilter = 'all';
@@ -1911,10 +1924,45 @@ const colModeChip = document.getElementById('colModeChip');
 colModeChip.classList.toggle('active', colMode === 'compact');
 colModeChip.addEventListener('click', () => {
   colMode = colMode === 'compact' ? 'full' : 'compact';
-  try { localStorage.setItem('colMode', colMode); } catch(e){}
+  customCols = null;   // compact/full presets replace any custom column set
+  try { localStorage.setItem('colMode', colMode); localStorage.removeItem('vt-cols'); } catch(e){}
   colModeChip.classList.toggle('active', colMode === 'compact');
+  syncColPanel();
   renderHead(); renderBody();
 });
+
+// ---- column picker panel ----
+const colPickChip = document.getElementById('colPickChip');
+const colPanel = document.getElementById('colPanel');
+function syncColPanel(){
+  colPickChip.classList.toggle('active', !!customCols || !colPanel.hidden);
+  if (colPanel.hidden) return;
+  const shown = new Set(visibleCols().map(c => c.key));
+  colPanel.innerHTML = COLS.map(c => `
+    <label style="display:flex;align-items:center;gap:5px;font-size:12.5px;cursor:pointer;${c.key === 'ticker' ? 'opacity:.55' : ''}">
+      <input type="checkbox" data-colkey="${c.key}" ${shown.has(c.key) ? 'checked' : ''} ${c.key === 'ticker' ? 'disabled' : ''}
+             style="width:auto;margin:0">${c.key === 'rank' ? 'Rank' : c.label}</label>`).join('') +
+    `<button type="button" id="colReset">Reset</button>`;
+  colPanel.querySelectorAll('[data-colkey]').forEach(cb => cb.addEventListener('change', () => {
+    customCols = new Set([...colPanel.querySelectorAll('[data-colkey]:checked')].map(x => x.getAttribute('data-colkey')));
+    customCols.add('ticker');
+    try { localStorage.setItem('vt-cols', JSON.stringify([...customCols])); } catch(e){}
+    colModeChip.classList.remove('active');
+    colPickChip.classList.add('active');
+    renderHead(); renderBody();
+  }));
+  document.getElementById('colReset').onclick = () => {
+    customCols = null;
+    try { localStorage.removeItem('vt-cols'); } catch(e){}
+    syncColPanel();
+    renderHead(); renderBody();
+  };
+}
+colPickChip.addEventListener('click', () => {
+  colPanel.hidden = !colPanel.hidden;
+  syncColPanel();
+});
+syncColPanel();
 document.getElementById('search').addEventListener('input', e => {
   searchTerm = e.target.value.trim().toLowerCase();
   renderBody();
@@ -2108,6 +2156,7 @@ function renderTechnicalSection(d){
       ${metricTile('RSI (14-day)', t.rsi14!==null&&t.rsi14!==undefined?fmtNum(t.rsi14,1):'—')}
       ${metricTile('Trend cross', crossLabel)}
       ${metricTile('Analyst calls', rec ? `${rec.strongBuy+rec.buy} buy / ${rec.hold} hold / ${rec.sell+rec.strongSell} sell` : '—')}
+      ${metricTile('Insiders (90d)', d.insiders ? `${d.insiders.b} buy${d.insiders.b === 1 ? '' : 's'} / ${d.insiders.s} sale${d.insiders.s === 1 ? '' : 's'}` : '—')}
     </div>
     ${(t.sma50 === null || t.sma50 === undefined || t.rsi14 === null || t.rsi14 === undefined)
       ? `<div style="font-size:12px;color:var(--text-secondary);margin:-6px 0 16px;">Blank indicators mean there isn't enough trading history yet — RSI needs 14 sessions, the trend averages 50 and 200. They fill in automatically as a newly listed stock trades.</div>`
@@ -2425,6 +2474,7 @@ function fetchDetail(){
             if (det.dataSource) d.dataSource = det.dataSource;
             if (det.adr) d.adr = det.adr;
             d.changeNote = det.changeNote || null; // absent = quiet day, clear it
+            d.insiders = det.insiders || null;     // {b, s} open-market trades, 90d
             d.earnings = Object.assign({}, d.earnings || {}, det.earnings || {});
           }
           d._detail = true;
@@ -2435,6 +2485,32 @@ function fetchDetail(){
   }
   return _detailFetch;
 }
+
+// same-sector peer table: the 4 largest sector peers around this stock, so you
+// can see at a glance whether it's the cheap one of its group. Click-through
+// rows (delegated [data-peer] handler below).
+function peersBlock(d){
+  if (!d.sector) return '';
+  const peers = DATA.filter(x => x.sector === d.sector && x.ticker !== d.ticker && x.marketCap)
+    .sort((a, b) => b.marketCap - a.marketCap).slice(0, 4);
+  if (peers.length < 2) return '';
+  const rows = [d, ...peers].map(x => `
+    <tr ${x.ticker === d.ticker ? 'class="peer-self"' : `data-peer="${x.ticker}" style="cursor:pointer"`}>
+      <td class="al"><b>${x.ticker}</b>${x.ticker === d.ticker ? ' <span style="color:var(--text-muted);font-weight:400">(this stock)</span>' : ''}</td>
+      <td>${fmtB(x.marketCap)}</td>
+      <td>${x.pe !== null && x.pe !== undefined ? fmtNum(x.pe) + '×' : '—'}</td>
+      <td>${x.divYield !== null && x.divYield !== undefined ? fmtNum(x.divYield) + '%' : '—'}</td>
+      <td><b>${x.combinedScore !== null && x.combinedScore !== undefined ? fmtNum(x.combinedScore) : '—'}</b></td>
+    </tr>`).join('');
+  return `<div class="breakdown-title">Sector peers — ${escHtml(d.sector)} (largest by market cap)</div>
+    <div style="overflow-x:auto"><table class="peer-tbl" style="width:100%">
+      <thead><tr><th class="al">Ticker</th><th>Mkt cap</th><th>P/E</th><th>Div yld</th><th>Combined</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+}
+document.addEventListener('click', e => {
+  const r = e.target.closest('[data-peer]');
+  if (r) selectStock(r.getAttribute('data-peer'), {});
+});
 
 function renderDetailCard(d){
   if (!d._detail){
@@ -2548,6 +2624,7 @@ function renderDetailCard(d){
     ${breakdownRow('Analyst view', ab.analyst)}
     ${renderTechnicalSection(d)}
     ${renderEarningsSection(d)}
+    ${peersBlock(d)}
     <div class="news-wrap" id="newsWrap" data-ticker="${d.ticker}"></div>
   `;
   card.classList.add('open');
