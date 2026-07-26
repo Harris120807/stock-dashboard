@@ -272,8 +272,9 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   only the dashboard's own derived metrics (scores/positions/watchlist) — never
   re-serve raw vendor fields (prices, P/E, fundamentals) through it without a
   data license.** Deploy: REST upload with `keep_bindings: ["secret_text"]` so
-  Worker secrets survive script updates (FOUR Worker secrets: `FINNHUB_API_KEY`,
-  `GH_TOKEN`, `ADMIN_KEY`, `CF_ANALYTICS_TOKEN` — re-set all after a full
+  Worker secrets survive script updates (SEVEN Worker secrets as of 2026-07-26:
+  `FINNHUB_API_KEY`, `GH_TOKEN`, `ADMIN_KEY`, `CF_ANALYTICS_TOKEN`,
+  `RESEND_API_KEY`, `MAIL_FROM`, `VAULT_KEY` — re-set all after a full
   re-provision).
 - **`/prices` (2026-07-22)**: live-quote endpoint for the page's 45s poller — ONE
   batched Yahoo spark sweep of the whole universe (chunked 20 symbols/request:
@@ -369,9 +370,10 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   Session in localStorage `vt-session`; 401 anywhere clears it. Gate carries an "Accounts & privacy" paragraph — keep it honest
   with what's actually stored.
 - **Worker deploys now carry THREE bindings** (kv_namespace CONFIG,
-  analytics_engine TRAFFIC, d1 DB) + keep_bindings secret_text; SIX secrets:
-  FINNHUB_API_KEY, GH_TOKEN, ADMIN_KEY, CF_ANALYTICS_TOKEN, RESEND_API_KEY,
-  MAIL_FROM. Body parsing covers POST **and PUT**; CORS allows GET/POST/PUT.
+  analytics_engine TRAFFIC, d1 DB) + keep_bindings secret_text; SEVEN secrets
+  since 2026-07-26: FINNHUB_API_KEY, GH_TOKEN, ADMIN_KEY, CF_ANALYTICS_TOKEN,
+  RESEND_API_KEY, MAIL_FROM, VAULT_KEY (broker-key encryption). Body parsing
+  covers POST **and PUT**; CORS allows GET/POST/PUT.
 - Owner signed up in-session with a TEMP password that appeared in chat — they
   were told to reset it via the emailed link immediately.
 
@@ -493,6 +495,108 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   no emails leave the DB): users/verified/alerts/non-empty watchlists;
   four KPI tiles on the admin Status card.
 
+## Security monitoring (2026-07-26)
+
+- **security_log** (D1 table, appended to `worker/schema.sql`): `{id, at
+  (epoch s), kind, detail, country}`. Kinds: `admin_auth_fail` (wrong admin
+  key, detail=route), `login_fail`, `signup`, `password_reset`,
+  `account_delete`, `canary_login`. Written best-effort by `secLog()` in
+  worker.js (try/catch + ctx.waitUntil — a broken security path must NEVER
+  break serving). **Privacy**: detail is route names/generic text only —
+  never emails, passwords or tokens.
+- **Canary tripwire**: one decoy user row (`canary+<hex>@valuetally.com`,
+  random pw_hash/salt, verified=0 — credentials exist NOWHERE else), id in
+  KV `canaryUserId` (Worker self-bootstraps the key from D1 by the
+  `canary+%@valuetally.com` LIKE if missing — the deploy token can't write
+  KV). Any login attempt resolving to it, session token resolving to it, or
+  password reset on it → `canary_login` log + ntfy to the OWNER topic
+  ("ValueTally SECURITY ALERT", rotating_light, click → /admin) — any touch
+  means someone is reading/using DB contents. No dedupe by design, only a
+  30-min flood cap (KV `canaryLastAlert`). Detection only — the request is
+  NOT blocked. Don't "clean up" the canary user row.
+- **Hourly anomaly check**: `securityCheck(env, dry)` piggybacks the
+  dead-man cron branch (`15 10-19 * * 1-5`; both waitUntil'd). Alerts the
+  owner topic ("ValueTally security warning", deduped one per 4h via KV
+  `secLastAlert`) when: users count dropped > max(2, 20%) vs KV baseline
+  `secBaseline` (mass deletion), admin_auth_fail ≥10/h (key brute-force),
+  or login_fail ≥50/h (credential stuffing). Baseline always rewritten
+  after a real (non-dry) check.
+- **Admin**: `GET /admin/security` → `{recent (last 30 rows),
+  failedAdmin24h, failedLogin24h, users, sessions, canaryOk}` (canaryOk =
+  canary row present, zero canary_login events, zero canary sessions);
+  `GET /admin/security-check` = ALWAYS-dry run of the anomaly check (never
+  alerts, never moves the baseline — same standing rule as deadman-check).
+  admin.html renders a Security card on Overview (right column, below
+  Kill-switches): 3 KPIs + last-12 events table, loaded in loadAll().
+- **Never send test messages to the owner ntfy topic** — alert paths are
+  verified by code inspection + the dry routes only. Note wrong-key admin
+  pings and bad logins DO create real log rows (that's fine, it's the
+  point); the e2e check used exactly one of each.
+
+## Trading 212 portfolio import (2026-07-26)
+
+- **Feature (owner-requested)**: a signed-in user connects a READ-ONLY
+  Trading 212 API key on the new site **Portfolio tab** (`#portfolio`, 9 tabs
+  now) and sees their live holdings — qty / avg price / price / value / P/L +
+  totals row — with covered stocks linked to their detail cards (delegated
+  `[data-peer]`). Signed-out = sign-in prompt (watchlist pattern); connected UI
+  has Refresh (client-disabled 6s after click) and Disconnect (confirm).
+- **Key storage, encrypted at rest**: D1 table `broker_keys(user_id PK,
+  provider 't212', enc, env 'live'|'demo', created_at)` — `enc` =
+  base64(iv || AES-256-GCM ciphertext) under Worker secret **`VAULT_KEY`**
+  (32-byte hex, generated 2026-07-26, exists ONLY as a Worker secret — never
+  in git, never printed; rotating it makes stored keys undecryptable →
+  users just see the reconnect prompt, no data loss beyond that). NEVER
+  store broker keys plaintext. Keys are never echoed in any response/log.
+- **Worker routes** (sessionUser-gated, no-store): `POST /me/t212 {key}` —
+  format check (15–300 non-space chars), validate via T212
+  `/equity/account/cash` against **live first, then demo** on 401/403
+  (remembers which env worked), fetch `/equity/account/info` for
+  currencyCode, encrypt+upsert, rate-limited 6/5min per user;
+  `POST /me/t212/delete` — row + KV caches wiped; `GET /me/portfolio` —
+  404 `{connected:false}` when no key, else decrypt → T212
+  `/equity/portfolio` from the stored env, positions mapped to
+  `{t212, qty, avgPrice, price, ppl, fxPpl}`, response
+  `{connected, env, currency, positions, fetchedAt}`. T212 429 → friendly
+  429; T212 401/403 (revoked key) → `{connected:true, keyInvalid:true}` so
+  the UI prompts reconnect. Account deletion also wipes broker_keys + caches.
+  secLog kinds `t212_connect` / `t212_delete` (no key material in detail).
+- **Rate-limit/cache design**: T212 allows ~1 req/5s per endpoint per key, so
+  portfolio responses are KV-cached 60s per user (`t212:{userId}`,
+  expirationTtl 60, CONFIG binding), account currency cached 30d
+  (`t212cur:{userId}`); the page's Refresh button self-disables for 6s.
+  T212 auth header is the RAW key, NOT `Bearer`.
+- **Ticker mapping (best-effort, client-side in template.html `pfMap`)**:
+  `XXX_US_EQ` → `XXX`; one trailing lowercase exchange letter before `_EQ`
+  maps l→`.L`, d→`.DE`, p→`.PA`, a→`.AS`; matched against DATA tickers AND
+  `adr` fields; unmatched holdings render fine from T212's own numbers
+  (they include currentPrice), just unlinked. Per-instrument prices are in
+  the instrument's own currency (plain numbers in the UI); `ppl` and its
+  total are in the ACCOUNT currency (symbol + header label from the
+  response's `currencyCode`).
+- **Template state**: portfolio code lives inside the accounts IIFE (needs
+  SESSION/api); `PF` state is reset on sign-in/sign-out/account-delete.
+  Gate "Accounts & privacy" paragraph now covers the broker key — keep it
+  honest. The demo env is labeled "practice account" in the UI.
+
+## Admin accounts list / score quintiles (2026-07-26 late)
+
+- **Admin Accounts tab** (5th admin tab, owner-requested): `GET /admin/users`
+  (admin-key gated, no-store) → email, verified, alerts, has_watchlist,
+  has_broker, created_at for every account (LIMIT 500, newest first); the
+  security canary is EXCLUDED by email pattern. Emails appear ONLY here —
+  never in any public/cached response. admin.html `atab-users` pane +
+  `loadUsers()`; the tab-switcher pane list now includes 'users'.
+  `users.created_at` is a TEXT datetime in production (not epoch) — the
+  formatter handles both.
+- **Combined-score quintiles** (owner-requested): `computeQuintiles()` in
+  template.html buckets all covered stocks by combinedScore into fifths
+  (Q5 = top), client-side, at load and at the end of `recomputeDerived`.
+  Shown as a "Quintile" table column (in COLS/column picker) and a Q-tag +
+  sentence in the detail card's Combined Score box. Wording is deliberately
+  factual (which bucket) — backtest return numbers stay admin-side with
+  their caveats. These are the same buckets backtest.py ranks by.
+
 ## Multi-agent coordination
 
 - **Lanes**: (1) UI/template → `template.html` on `claude/state`; (2) scoring/pipeline →
@@ -547,6 +651,13 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   dead-man alarm cron (owner ntfy on stalled publishes, KV-deduped);
   Saturday weekly-wrap email cron; backtest switched to dividend-adjusted
   returns; Worker now runs three cron schedules.
+- 2026-07-26: watchlists made signed-in-only (union-merge removed); insider
+  activity (7-call analyst bundle); column picker; sector-peers table;
+  data-quality monitor (PR #21); admin user-stats; score-delta threshold
+  recalibration for the 0-100 scale; security monitoring (security_log +
+  canary tripwire + anomaly cron, via agent); Trading 212 portfolio import
+  (encrypted broker keys + #portfolio 9th tab, via agent); admin Accounts
+  tab (5th admin tab); combined-score quintile display.
 
 ## Open items (owner-side)
 
