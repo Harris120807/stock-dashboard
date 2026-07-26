@@ -3677,6 +3677,14 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
   };
   const pfQty = v => (v === null || v === undefined) ? '—' : v.toLocaleString(undefined, { maximumFractionDigits: 4 });
   const pfPlain = v => (v === null || v === undefined || isNaN(v)) ? '—' : v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // per-position price in the INSTRUMENT's currency (ccy from the server:
+  // USD/EUR/CHF symbols, GBX rendered as pence like the rest of the site)
+  const pfInstr = (v, ccy) => {
+    if (v === null || v === undefined || isNaN(v)) return '—';
+    if (ccy === 'GBX') return Math.round(v).toLocaleString() + 'p';
+    const s = PF_CUR_SYM[ccy] || (ccy ? ccy + ' ' : '');
+    return s + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
 
   async function loadPortfolio(){
     if (PF.busy) return;
@@ -3710,13 +3718,16 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
     }
     table.style.display = '';
     const cur = d.currency ? ` (${d.currency})` : '';
-    table.querySelector('thead').innerHTML = `<tr><th>Instrument</th><th class="num">Qty</th><th class="num">Avg price</th><th class="num">Price</th><th class="num">Value</th><th class="num">P/L${cur}</th></tr>`;
-    let totV = 0, totP = 0, matched = 0;
+    const anyAcct = rows.some(p => p.valueAcct !== null && p.valueAcct !== undefined);
+    table.querySelector('thead').innerHTML = `<tr><th>Instrument</th><th class="num">Qty</th><th class="num">Avg price</th><th class="num">Price</th><th class="num">Value${anyAcct ? cur : ''}</th><th class="num">P/L${cur}</th></tr>`;
+    let totV = 0, totVAll = true, totP = 0, matched = 0;
     const body = rows.map(p => {
       const our = pfMap(p.t212);
       if (our) matched++;
-      const val = (p.qty !== null && p.qty !== undefined && p.price !== null && p.price !== undefined) ? p.qty * p.price : null;
-      if (val !== null) totV += val;
+      // value in the ACCOUNT currency (server FX); raw qty×price would mix
+      // dollars and pence across a typical portfolio
+      const val = (p.valueAcct !== null && p.valueAcct !== undefined) ? p.valueAcct : null;
+      if (val !== null) totV += val; else totVAll = false;
       if (p.ppl !== null && p.ppl !== undefined) totP += p.ppl;
       const name = our
         ? `<span class="pf-link" data-peer="${our}">${our}</span>`
@@ -3724,15 +3735,15 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
       return `<tr>
         <td>${name}</td>
         <td class="num">${pfQty(p.qty)}</td>
-        <td class="num">${pfPlain(p.avgPrice)}</td>
-        <td class="num">${pfPlain(p.price)}</td>
-        <td class="num">${pfPlain(val)}</td>
+        <td class="num">${pfInstr(p.avgPrice, p.ccy)}</td>
+        <td class="num">${pfInstr(p.price, p.ccy)}</td>
+        <td class="num">${val !== null ? pfMoney(val) : pfInstr(p.qty !== null && p.price !== null ? p.qty * p.price : null, p.ccy)}</td>
         <td class="num ${p.ppl >= 0 ? 'pos' : 'neg'}">${p.ppl !== null && p.ppl !== undefined ? (p.ppl >= 0 ? '+' : '') + pfMoney(p.ppl) : '—'}</td>
       </tr>`;
     }).join('');
     table.querySelector('tbody').innerHTML = body +
-      `<tr class="pf-total"><td>Total</td><td></td><td></td><td></td><td class="num">${pfPlain(totV)}</td><td class="num ${totP >= 0 ? 'pos' : 'neg'}">${(totP >= 0 ? '+' : '') + pfMoney(totP)}</td></tr>`;
-    note.textContent = `${rows.length} position${rows.length === 1 ? '' : 's'}${matched ? `, ${matched} covered here — tap a ticker for its scores` : ''}. Prices are Trading 212's, in each instrument's own currency; P/L is in your account currency. Read-only — nothing on this page can trade.`;
+      `<tr class="pf-total"><td>Total</td><td></td><td></td><td></td><td class="num">${anyAcct ? pfMoney(totV) + (totVAll ? '' : '*') : '—'}</td><td class="num ${totP >= 0 ? 'pos' : 'neg'}">${(totP >= 0 ? '+' : '') + pfMoney(totP)}</td></tr>`;
+    note.textContent = `${rows.length} position${rows.length === 1 ? '' : 's'}${matched ? `, ${matched} covered here — tap a ticker for its scores` : ''}. Prices are in each instrument's own currency; values and P/L are converted to your account currency${totVAll ? '' : ' (* total excludes positions whose currency could not be converted)'}. Read-only — nothing on this page can trade.`;
   }
 
   window.renderPortfolioView = function(){

@@ -578,6 +578,18 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   expirationTtl 60, CONFIG binding), account currency cached 30d
   (`t212cur:{userId}`); the page's Refresh button self-disables for 6s.
   T212 auth header is the RAW key, NOT `Bearer`.
+- **Currency handling (2026-07-26 late)**: T212 prices are in each
+  INSTRUMENT's currency (US in USD, LSE in PENCE) while ppl is in the
+  ACCOUNT currency — raw qty×price sums were meaningless across a mixed
+  portfolio (shipped that way briefly). Worker infers instrument ccy from
+  the ticker suffix (`t212Ccy`: _US_EQ→USD, l→GBX, d/p/a/e→EUR, s→CHF),
+  converts each value to the account currency via Yahoo FX (`fxRate`,
+  1h KV cache `fx:{PAIR}`, GBX = GBP/100) → per-position `ccy` +
+  `valueAcct`. UI: prices shown in instrument ccy (pence as `1,553p`),
+  Value column + total in account ccy; unconvertible rows fall back to
+  instrument-ccy value and are excluded from the total (asterisk note).
+  If connect can't resolve the account currency (T212 rate limit on
+  account/info) the primed cache lives only 10s so the next fetch fixes it.
 - **Ticker mapping (best-effort, client-side in template.html `pfMap`)**:
   `XXX_US_EQ` → `XXX`; one trailing lowercase exchange letter before `_EQ`
   maps l→`.L`, d→`.DE`, p→`.PA`, a→`.AS`; matched against DATA tickers AND

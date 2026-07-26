@@ -526,6 +526,50 @@ const t212Fetch = (envName, path, cred) =>
     'Accept': 'application/json',
   } });
 
+// T212 prices come in each INSTRUMENT's currency (US in USD, LSE in PENCE)
+// while ppl is in the ACCOUNT currency — summing raw qty×price across a mixed
+// portfolio is meaningless. Infer the instrument currency from the T212 ticker
+// suffix and convert values to the account currency via Yahoo FX (1h KV cache).
+const t212Ccy = t => {
+  if (!t) return null;
+  if (/_US_EQ$/.test(t)) return 'USD';
+  const m = String(t).match(/([a-z])_EQ$/);
+  if (m) return { l: 'GBX', d: 'EUR', p: 'EUR', a: 'EUR', e: 'EUR', s: 'CHF' }[m[1]] || null;
+  return null;
+};
+
+async function fxRate(env, from, to) {
+  if (!from || !to) return null;
+  if (from === to) return 1;
+  if (from === 'GBX') { const r = await fxRate(env, 'GBP', to); return r === null ? null : r / 100; }
+  const k = 'fx:' + from + to;
+  try { const c = await env.CONFIG?.get(k); if (c) return parseFloat(c); } catch (e) { /* miss */ }
+  try {
+    const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${from}${to}=X?range=1d&interval=1d`, { headers: YA_UA });
+    const p = (await r.json()).chart.result[0].meta.regularMarketPrice;
+    if (p) { try { await env.CONFIG?.put(k, String(p), { expirationTtl: 3600 }); } catch (e) { /* cache only */ } return p; }
+  } catch (e) { /* FX unavailable — values stay unconverted */ }
+  return null;
+}
+
+// raw T212 /equity/portfolio array -> our position shape, with per-position
+// instrument currency and account-currency value when FX is resolvable
+async function t212Positions(env, rawPf, acctCcy) {
+  const positions = (Array.isArray(rawPf) ? rawPf : []).map(p => ({
+    t212: p.ticker, qty: p.quantity, avgPrice: p.averagePrice, price: p.currentPrice,
+    ppl: p.ppl ?? null, fxPpl: p.fxPpl ?? null, ccy: t212Ccy(p.ticker), valueAcct: null,
+  }));
+  if (acctCcy) {
+    const rates = {};
+    for (const c of new Set(positions.map(p => p.ccy).filter(Boolean))) rates[c] = await fxRate(env, c, acctCcy);
+    for (const p of positions) {
+      const r = p.ccy && rates[p.ccy];
+      if (r && p.qty != null && p.price != null) p.valueAcct = Math.round(p.qty * p.price * r * 100) / 100;
+    }
+  }
+  return positions;
+}
+
 async function sessionUser(req, env, ctx) {
   const tok = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
   if (!/^[a-f0-9]{64}$/.test(tok)) return null;
@@ -778,13 +822,12 @@ async function handleAuth(route, req, env, ctx) {
       if (currency) await env.CONFIG?.put('t212cur:' + u.id, currency, { expirationTtl: 30 * 86400 });
       // prime the portfolio cache with the validation response — the page loads
       // holdings right after connecting, and T212 only allows ~1 req/5s
-      const positions = (Array.isArray(rawPf) ? rawPf : []).map(p => ({
-        t212: p.ticker, qty: p.quantity, avgPrice: p.averagePrice, price: p.currentPrice,
-        ppl: p.ppl ?? null, fxPpl: p.fxPpl ?? null,
-      }));
+      const positions = await t212Positions(env, rawPf, currency);
+      // no currency (account/info rate-limited during connect) -> short-lived
+      // prime only, so the next fetch resolves the currency and converts values
       await env.CONFIG?.put('t212:' + u.id, JSON.stringify(
         { connected: true, env: t212env, currency, positions, fetchedAt: new Date().toISOString() }
-      ), { expirationTtl: 60 });
+      ), { expirationTtl: currency ? 60 : 10 });
     } catch (e) { /* cache only */ }
     secLog(env, ctx, 't212_connect', 'env=' + t212env, req);
     return json({ ok: true, currency, env: t212env }, 200, 0);
@@ -822,10 +865,6 @@ async function handleAuth(route, req, env, ctx) {
     if (r.status === 429) return json({ error: 'Trading 212 is rate-limiting — try again in a few seconds', rateLimited: true }, 429, 0);
     if (!r.ok) return json({ error: 'Trading 212 error ' + r.status }, 502, 0);
     const raw = await r.json().catch(() => null);
-    const positions = (Array.isArray(raw) ? raw : []).map(p => ({
-      t212: p.ticker, qty: p.quantity, avgPrice: p.averagePrice, price: p.currentPrice,
-      ppl: p.ppl ?? null, fxPpl: p.fxPpl ?? null,
-    }));
     let currency = null;
     try { currency = await env.CONFIG?.get('t212cur:' + u.id); } catch (e) { /* optional */ }
     if (!currency) {
@@ -837,6 +876,7 @@ async function handleAuth(route, req, env, ctx) {
         }
       } catch (e) { /* label only */ }
     }
+    const positions = await t212Positions(env, raw, currency);
     const out = { connected: true, env: row.env, currency, positions, fetchedAt: new Date().toISOString() };
     try { await env.CONFIG?.put('t212:' + u.id, JSON.stringify(out), { expirationTtl: 60 }); } catch (e) { /* cache only */ }
     return json(out, 200, 0);
