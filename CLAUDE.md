@@ -272,8 +272,9 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   only the dashboard's own derived metrics (scores/positions/watchlist) — never
   re-serve raw vendor fields (prices, P/E, fundamentals) through it without a
   data license.** Deploy: REST upload with `keep_bindings: ["secret_text"]` so
-  Worker secrets survive script updates (FOUR Worker secrets: `FINNHUB_API_KEY`,
-  `GH_TOKEN`, `ADMIN_KEY`, `CF_ANALYTICS_TOKEN` — re-set all after a full
+  Worker secrets survive script updates (SEVEN Worker secrets as of 2026-07-26:
+  `FINNHUB_API_KEY`, `GH_TOKEN`, `ADMIN_KEY`, `CF_ANALYTICS_TOKEN`,
+  `RESEND_API_KEY`, `MAIL_FROM`, `VAULT_KEY` — re-set all after a full
   re-provision).
 - **`/prices` (2026-07-22)**: live-quote endpoint for the page's 45s poller — ONE
   batched Yahoo spark sweep of the whole universe (chunked 20 symbols/request:
@@ -369,9 +370,10 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   Session in localStorage `vt-session`; 401 anywhere clears it. Gate carries an "Accounts & privacy" paragraph — keep it honest
   with what's actually stored.
 - **Worker deploys now carry THREE bindings** (kv_namespace CONFIG,
-  analytics_engine TRAFFIC, d1 DB) + keep_bindings secret_text; SIX secrets:
-  FINNHUB_API_KEY, GH_TOKEN, ADMIN_KEY, CF_ANALYTICS_TOKEN, RESEND_API_KEY,
-  MAIL_FROM. Body parsing covers POST **and PUT**; CORS allows GET/POST/PUT.
+  analytics_engine TRAFFIC, d1 DB) + keep_bindings secret_text; SEVEN secrets
+  since 2026-07-26: FINNHUB_API_KEY, GH_TOKEN, ADMIN_KEY, CF_ANALYTICS_TOKEN,
+  RESEND_API_KEY, MAIL_FROM, VAULT_KEY (broker-key encryption). Body parsing
+  covers POST **and PUT**; CORS allows GET/POST/PUT.
 - Owner signed up in-session with a TEMP password that appeared in chat — they
   were told to reset it via the emailed link immediately.
 
@@ -531,7 +533,51 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   pings and bad logins DO create real log rows (that's fine, it's the
   point); the e2e check used exactly one of each.
 
-## Multi-agent coordination
+## Trading 212 portfolio import (2026-07-26)
+
+- **Feature (owner-requested)**: a signed-in user connects a READ-ONLY
+  Trading 212 API key on the new site **Portfolio tab** (`#portfolio`, 9 tabs
+  now) and sees their live holdings — qty / avg price / price / value / P/L +
+  totals row — with covered stocks linked to their detail cards (delegated
+  `[data-peer]`). Signed-out = sign-in prompt (watchlist pattern); connected UI
+  has Refresh (client-disabled 6s after click) and Disconnect (confirm).
+- **Key storage, encrypted at rest**: D1 table `broker_keys(user_id PK,
+  provider 't212', enc, env 'live'|'demo', created_at)` — `enc` =
+  base64(iv || AES-256-GCM ciphertext) under Worker secret **`VAULT_KEY`**
+  (32-byte hex, generated 2026-07-26, exists ONLY as a Worker secret — never
+  in git, never printed; rotating it makes stored keys undecryptable →
+  users just see the reconnect prompt, no data loss beyond that). NEVER
+  store broker keys plaintext. Keys are never echoed in any response/log.
+- **Worker routes** (sessionUser-gated, no-store): `POST /me/t212 {key}` —
+  format check (15–300 non-space chars), validate via T212
+  `/equity/account/cash` against **live first, then demo** on 401/403
+  (remembers which env worked), fetch `/equity/account/info` for
+  currencyCode, encrypt+upsert, rate-limited 6/5min per user;
+  `POST /me/t212/delete` — row + KV caches wiped; `GET /me/portfolio` —
+  404 `{connected:false}` when no key, else decrypt → T212
+  `/equity/portfolio` from the stored env, positions mapped to
+  `{t212, qty, avgPrice, price, ppl, fxPpl}`, response
+  `{connected, env, currency, positions, fetchedAt}`. T212 429 → friendly
+  429; T212 401/403 (revoked key) → `{connected:true, keyInvalid:true}` so
+  the UI prompts reconnect. Account deletion also wipes broker_keys + caches.
+  secLog kinds `t212_connect` / `t212_delete` (no key material in detail).
+- **Rate-limit/cache design**: T212 allows ~1 req/5s per endpoint per key, so
+  portfolio responses are KV-cached 60s per user (`t212:{userId}`,
+  expirationTtl 60, CONFIG binding), account currency cached 30d
+  (`t212cur:{userId}`); the page's Refresh button self-disables for 6s.
+  T212 auth header is the RAW key, NOT `Bearer`.
+- **Ticker mapping (best-effort, client-side in template.html `pfMap`)**:
+  `XXX_US_EQ` → `XXX`; one trailing lowercase exchange letter before `_EQ`
+  maps l→`.L`, d→`.DE`, p→`.PA`, a→`.AS`; matched against DATA tickers AND
+  `adr` fields; unmatched holdings render fine from T212's own numbers
+  (they include currentPrice), just unlinked. Per-instrument prices are in
+  the instrument's own currency (plain numbers in the UI); `ppl` and its
+  total are in the ACCOUNT currency (symbol + header label from the
+  response's `currencyCode`).
+- **Template state**: portfolio code lives inside the accounts IIFE (needs
+  SESSION/api); `PF` state is reset on sign-in/sign-out/account-delete.
+  Gate "Accounts & privacy" paragraph now covers the broker key — keep it
+  honest. The demo env is labeled "practice account" in the UI.
 
 - **Lanes**: (1) UI/template → `template.html` on `claude/state`; (2) scoring/pipeline →
   `scripts/refresh.py` on `main`; (3) universe rules → `scripts/weekly_universe.py`;

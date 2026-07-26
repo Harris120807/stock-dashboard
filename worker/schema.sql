@@ -37,9 +37,20 @@ CREATE TABLE IF NOT EXISTS attempts (
 CREATE TABLE IF NOT EXISTS security_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   at INTEGER NOT NULL,          -- epoch seconds
-  kind TEXT NOT NULL,           -- admin_auth_fail | login_fail | signup | password_reset | account_delete | canary_login
+  kind TEXT NOT NULL,           -- admin_auth_fail | login_fail | signup | password_reset | account_delete | canary_login | t212_connect | t212_delete
   detail TEXT,
   country TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_seclog_at ON security_log(at);
 CREATE INDEX IF NOT EXISTS idx_seclog_kind_at ON security_log(kind, at);
+-- Trading 212 portfolio import (2026-07-26): one read-only broker key per
+-- user. enc = base64(iv || AES-256-GCM ciphertext) under Worker secret
+-- VAULT_KEY — never plaintext. env records which T212 environment the key
+-- validated against (live | demo).
+CREATE TABLE IF NOT EXISTS broker_keys (
+  user_id INTEGER PRIMARY KEY,
+  provider TEXT NOT NULL,       -- 't212'
+  enc TEXT NOT NULL,
+  env TEXT NOT NULL DEFAULT 'live',
+  created_at INTEGER
+);

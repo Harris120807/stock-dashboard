@@ -27,6 +27,10 @@
 //                              secret CF_ANALYTICS_TOKEN with Account Analytics:Read)
 //   GET  /admin/security    -> intrusion-monitor status (security_log, canary)
 //   GET  /admin/security-check -> DRY run of the hourly anomaly check
+// Trading 212 portfolio import (2026-07-26, signed-in only, no-store):
+//   POST /me/t212        -> validate + encrypt-store a READ-ONLY T212 key
+//   POST /me/t212/delete -> disconnect (row + caches wiped)
+//   GET  /me/portfolio   -> positions from T212 (KV-cached 60s per user)
 // Every request logs an anonymous data point (route group + country) to the
 // Analytics Engine dataset `stockdash_traffic` (binding TRAFFIC).
 // Kill-switches: livePrices gates /prices, fullRefresh gates /refresh,
@@ -464,6 +468,40 @@ const mailWrap = body => `<div style="background:#f4f6fa;padding:32px 16px;font-
   </div></div>`;
 const mailBtn = (href, label) => `<p style="margin:20px 0 6px"><a href="${href}" style="display:inline-block;background:#1e4f91;color:#ffffff;padding:12px 22px;border-radius:9px;text-decoration:none;font-weight:600">${label}</a></p>`;
 
+// ---------- broker-key vault (2026-07-26, Trading 212 portfolio import) ----------
+// Broker API keys are AES-256-GCM encrypted at rest with Worker secret
+// VAULT_KEY (32-byte hex, exists ONLY as a Worker secret): random 12-byte IV
+// per encryption, stored as base64(iv || ciphertext) in D1 broker_keys.enc.
+// Keys never appear in logs, responses, or error messages.
+
+function vaultKey(env) {
+  const raw = new Uint8Array(env.VAULT_KEY.match(/../g).map(h => parseInt(h, 16)));
+  return crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']);
+}
+
+async function vaultEncrypt(env, text) {
+  const key = await vaultKey(env);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(text)));
+  const buf = new Uint8Array(iv.length + ct.length);
+  buf.set(iv); buf.set(ct, iv.length);
+  return btoa(String.fromCharCode(...buf));
+}
+
+async function vaultDecrypt(env, b64) {
+  const buf = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  const key = await vaultKey(env);
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, key, buf.slice(12));
+  return new TextDecoder().decode(pt);
+}
+
+// Trading 212 public API. Auth header is the RAW key (no "Bearer"). Rate
+// limits are strict (~1 req / 5s per endpoint per key) — portfolio responses
+// are KV-cached 60s per user and the page throttles its refresh button.
+const T212_BASE = { live: 'https://live.trading212.com/api/v0', demo: 'https://demo.trading212.com/api/v0' };
+const t212Fetch = (envName, path, key) =>
+  fetch(T212_BASE[envName] + path, { headers: { 'Authorization': key, 'Accept': 'application/json' } });
+
 async function sessionUser(req, env, ctx) {
   const tok = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
   if (!/^[a-f0-9]{64}$/.test(tok)) return null;
@@ -622,8 +660,13 @@ async function handleAuth(route, req, env, ctx) {
       env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(u.id),
       env.DB.prepare('DELETE FROM tokens WHERE user_id = ?').bind(u.id),
       env.DB.prepare('DELETE FROM watchlists WHERE user_id = ?').bind(u.id),
+      env.DB.prepare('DELETE FROM broker_keys WHERE user_id = ?').bind(u.id),
       env.DB.prepare('DELETE FROM users WHERE id = ?').bind(u.id),
     ]);
+    try {
+      await env.CONFIG?.delete('t212:' + u.id);
+      await env.CONFIG?.delete('t212cur:' + u.id);
+    } catch (e) { /* cache only */ }
     secLog(env, ctx, 'account_delete', 'auth/delete-account', req);
     return json({ ok: true, note: 'account and data deleted' }, 200, 0);
   }
@@ -656,6 +699,101 @@ async function handleAuth(route, req, env, ctx) {
       await env.DB.prepare('UPDATE users SET alerts = 0 WHERE unsub_token = ?').bind(t).run();
     }
     return new Response(null, { status: 302, headers: { 'Location': SITE + '#alerts=off', ...CORS } });
+  }
+
+  // ----- Trading 212 portfolio import (2026-07-26) -----
+  // Connect a READ-ONLY T212 key: validate against the cheap /account/cash
+  // endpoint (live first, then demo/practice), fetch the account currency,
+  // encrypt-at-rest and upsert. The key itself is never echoed back.
+  if (route === 'me/t212' && req.method === 'POST') {
+    const u = await sessionUser(req, env, ctx);
+    if (!u) return json({ error: 'not signed in' }, 401, 0);
+    if (!env.VAULT_KEY) return json({ error: 'broker connections not provisioned' }, 503, 0);
+    const key = String((body && body.key) || '').trim();
+    if (!/^\S{15,300}$/.test(key)) return json({ error: 'that does not look like a Trading 212 API key — copy it from the T212 app (Settings → API)' }, 400, 0);
+    if (!(await rateOk(env, 'br:' + u.id, 6, 300))) return json({ error: 'too many attempts — try again in a few minutes' }, 429, 0);
+    let t212env = null, r = null;
+    try {
+      r = await t212Fetch('live', '/equity/account/cash', key);
+      if (r.ok) t212env = 'live';
+      else if (r.status === 401 || r.status === 403) {
+        r = await t212Fetch('demo', '/equity/account/cash', key);
+        if (r.ok) t212env = 'demo';
+      }
+    } catch (e) { return json({ error: 'could not reach Trading 212 — try again shortly' }, 502, 0); }
+    if (!t212env) {
+      if (r && r.status === 429) return json({ error: 'Trading 212 is rate-limiting right now — wait a few seconds and try again' }, 429, 0);
+      return json({ error: 'Trading 212 did not accept this key — check it is copied in full and still active' }, 400, 0);
+    }
+    let currency = null;
+    try {
+      const ri = await t212Fetch(t212env, '/equity/account/info', key);
+      if (ri.ok) currency = ((await ri.json()) || {}).currencyCode || null;
+    } catch (e) { /* label only — connection still succeeds */ }
+    const enc = await vaultEncrypt(env, key);
+    const now = Math.floor(Date.now() / 1000);
+    await env.DB.prepare(
+      "INSERT INTO broker_keys (user_id, provider, enc, env, created_at) VALUES (?, 't212', ?, ?, ?) " +
+      'ON CONFLICT(user_id) DO UPDATE SET provider = ?, enc = ?, env = ?, created_at = ?'
+    ).bind(u.id, enc, t212env, now, 't212', enc, t212env, now).run();
+    try {
+      if (currency) await env.CONFIG?.put('t212cur:' + u.id, currency, { expirationTtl: 30 * 86400 });
+      await env.CONFIG?.delete('t212:' + u.id);   // drop any stale cached portfolio
+    } catch (e) { /* cache only */ }
+    secLog(env, ctx, 't212_connect', 'env=' + t212env, req);
+    return json({ ok: true, currency, env: t212env }, 200, 0);
+  }
+
+  if (route === 'me/t212/delete' && req.method === 'POST') {
+    const u = await sessionUser(req, env, ctx);
+    if (!u) return json({ error: 'not signed in' }, 401, 0);
+    await env.DB.prepare('DELETE FROM broker_keys WHERE user_id = ?').bind(u.id).run();
+    try {
+      await env.CONFIG?.delete('t212:' + u.id);
+      await env.CONFIG?.delete('t212cur:' + u.id);
+    } catch (e) { /* cache only */ }
+    secLog(env, ctx, 't212_delete', 'me/t212/delete', req);
+    return json({ ok: true }, 200, 0);
+  }
+
+  if (route === 'me/portfolio' && req.method === 'GET') {
+    const u = await sessionUser(req, env, ctx);
+    if (!u) return json({ error: 'not signed in' }, 401, 0);
+    const row = await env.DB.prepare("SELECT enc, env FROM broker_keys WHERE user_id = ? AND provider = 't212'").bind(u.id).first();
+    if (!row) return json({ connected: false }, 404, 0);
+    if (!env.VAULT_KEY) return json({ error: 'broker connections not provisioned' }, 503, 0);
+    try {
+      const hit = await env.CONFIG?.get('t212:' + u.id);
+      if (hit) return json(JSON.parse(hit), 200, 0);
+    } catch (e) { /* cache miss */ }
+    let key;
+    try { key = await vaultDecrypt(env, row.enc); }
+    catch (e) { return json({ connected: true, keyInvalid: true }, 200, 0); }   // undecryptable (e.g. rotated VAULT_KEY) -> reconnect
+    let r;
+    try { r = await t212Fetch(row.env, '/equity/portfolio', key); }
+    catch (e) { return json({ error: 'could not reach Trading 212 — try again shortly' }, 502, 0); }
+    if (r.status === 401 || r.status === 403) return json({ connected: true, keyInvalid: true }, 200, 0);
+    if (r.status === 429) return json({ error: 'Trading 212 is rate-limiting — try again in a few seconds', rateLimited: true }, 429, 0);
+    if (!r.ok) return json({ error: 'Trading 212 error ' + r.status }, 502, 0);
+    const raw = await r.json().catch(() => null);
+    const positions = (Array.isArray(raw) ? raw : []).map(p => ({
+      t212: p.ticker, qty: p.quantity, avgPrice: p.averagePrice, price: p.currentPrice,
+      ppl: p.ppl ?? null, fxPpl: p.fxPpl ?? null,
+    }));
+    let currency = null;
+    try { currency = await env.CONFIG?.get('t212cur:' + u.id); } catch (e) { /* optional */ }
+    if (!currency) {
+      try {
+        const ri = await t212Fetch(row.env, '/equity/account/info', key);
+        if (ri.ok) {
+          currency = ((await ri.json()) || {}).currencyCode || null;
+          if (currency) await env.CONFIG?.put('t212cur:' + u.id, currency, { expirationTtl: 30 * 86400 });
+        }
+      } catch (e) { /* label only */ }
+    }
+    const out = { connected: true, env: row.env, currency, positions, fetchedAt: new Date().toISOString() };
+    try { await env.CONFIG?.put('t212:' + u.id, JSON.stringify(out), { expirationTtl: 60 }); } catch (e) { /* cache only */ }
+    return json(out, 200, 0);
   }
 
   if (route === 'me/watchlist' && req.method === 'PUT') {
