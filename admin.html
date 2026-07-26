@@ -144,6 +144,20 @@ a{color:var(--accent)}
       <div class="msg" id="cfgMsg"></div>
       <div class="hint">Changes reach every visitor within about a minute. Flags fail open — if config storage is unreachable, the site keeps working.</div>
     </div>
+
+    <div class="card">
+      <h2>Security</h2>
+      <div class="kpis">
+        <div class="kpi"><b id="secAdmin">—</b><span>failed admin keys (24h)</span></div>
+        <div class="kpi"><b id="secLogin">—</b><span>failed logins (24h)</span></div>
+        <div class="kpi"><b id="secCanary">—</b><span>canary account</span></div>
+      </div>
+      <table id="secTbl" class="hidden"><thead><tr><th>Event</th><th>When</th><th>From</th></tr></thead><tbody></tbody></table>
+      <div class="msg" id="secMsg"></div>
+      <div class="hint">Tripwires on the accounts database: failed key/login attempts are logged at the edge, and a decoy
+      "canary" account — whose credentials exist nowhere — pushes a phone alert the moment anything touches it.
+      An hourly check also watches for mass deletions and brute-force bursts.</div>
+    </div>
     </div>
     </div>
     </div>
@@ -229,7 +243,37 @@ $('loginBtn').onclick = () => { KEY = $('keyIn').value.trim(); localStorage.setI
 $('keyIn').addEventListener('keydown', e => { if (e.key === 'Enter') $('loginBtn').click(); });
 $('logoutBtn').onclick = () => { localStorage.removeItem('vt-admin-key'); location.reload(); };
 
-function loadAll() { loadStatus(); loadConfig(); loadStats(); loadRequests(); loadUserStats(); loadDataQuality(); }
+function loadAll() { loadStatus(); loadConfig(); loadStats(); loadRequests(); loadUserStats(); loadDataQuality(); loadSecurity(); }
+
+async function loadSecurity() {
+  try {
+    const d = await authFetch('/admin/security').then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    $('secAdmin').textContent = d.failedAdmin24h;
+    $('secLogin').textContent = d.failedLogin24h;
+    $('secCanary').textContent = d.canaryOk ? '✓ intact' : '⚠ tripped';
+    $('secCanary').style.color = d.canaryOk ? 'var(--good)' : 'var(--bad)';
+    const KINDS = {
+      admin_auth_fail: 'failed admin key', login_fail: 'failed login', signup: 'new signup',
+      password_reset: 'password reset', account_delete: 'account deleted', canary_login: '⚠ CANARY TOUCHED',
+    };
+    const recent = d.recent || [];
+    const tb = $('secTbl').querySelector('tbody');
+    tb.innerHTML = '';
+    for (const e of recent.slice(0, 12)) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td></td><td></td><td></td>';
+      tr.children[0].textContent = KINDS[e.kind] || e.kind;
+      tr.children[0].title = e.detail || '';
+      tr.children[1].textContent = new Date((e.at || 0) * 1000).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+      tr.children[2].textContent = e.country || '';
+      if (e.kind === 'canary_login') tr.style.color = 'var(--bad)';
+      tb.appendChild(tr);
+    }
+    $('secTbl').classList.toggle('hidden', !recent.length);
+    $('secMsg').textContent = recent.length ? '' : 'No security events logged yet — quiet is good.';
+    $('secMsg').className = 'msg';
+  } catch (e) { $('secMsg').textContent = 'Could not load security status.'; $('secMsg').className = 'msg err'; }
+}
 
 async function loadUserStats() {
   try {

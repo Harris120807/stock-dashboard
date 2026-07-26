@@ -30,3 +30,16 @@ CREATE TABLE IF NOT EXISTS attempts (
   n INTEGER NOT NULL,
   reset_at INTEGER NOT NULL
 );
+-- security monitoring (2026-07-26): intrusion/tamper event log. Written
+-- best-effort by the Worker (secLog); read by /admin/security and the hourly
+-- anomaly check. detail is route names / generic text only — never emails,
+-- passwords or tokens.
+CREATE TABLE IF NOT EXISTS security_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at INTEGER NOT NULL,          -- epoch seconds
+  kind TEXT NOT NULL,           -- admin_auth_fail | login_fail | signup | password_reset | account_delete | canary_login
+  detail TEXT,
+  country TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_seclog_at ON security_log(at);
+CREATE INDEX IF NOT EXISTS idx_seclog_kind_at ON security_log(kind, at);

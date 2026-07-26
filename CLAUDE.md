@@ -493,6 +493,44 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   no emails leave the DB): users/verified/alerts/non-empty watchlists;
   four KPI tiles on the admin Status card.
 
+## Security monitoring (2026-07-26)
+
+- **security_log** (D1 table, appended to `worker/schema.sql`): `{id, at
+  (epoch s), kind, detail, country}`. Kinds: `admin_auth_fail` (wrong admin
+  key, detail=route), `login_fail`, `signup`, `password_reset`,
+  `account_delete`, `canary_login`. Written best-effort by `secLog()` in
+  worker.js (try/catch + ctx.waitUntil — a broken security path must NEVER
+  break serving). **Privacy**: detail is route names/generic text only —
+  never emails, passwords or tokens.
+- **Canary tripwire**: one decoy user row (`canary+<hex>@valuetally.com`,
+  random pw_hash/salt, verified=0 — credentials exist NOWHERE else), id in
+  KV `canaryUserId` (Worker self-bootstraps the key from D1 by the
+  `canary+%@valuetally.com` LIKE if missing — the deploy token can't write
+  KV). Any login attempt resolving to it, session token resolving to it, or
+  password reset on it → `canary_login` log + ntfy to the OWNER topic
+  ("ValueTally SECURITY ALERT", rotating_light, click → /admin) — any touch
+  means someone is reading/using DB contents. No dedupe by design, only a
+  30-min flood cap (KV `canaryLastAlert`). Detection only — the request is
+  NOT blocked. Don't "clean up" the canary user row.
+- **Hourly anomaly check**: `securityCheck(env, dry)` piggybacks the
+  dead-man cron branch (`15 10-19 * * 1-5`; both waitUntil'd). Alerts the
+  owner topic ("ValueTally security warning", deduped one per 4h via KV
+  `secLastAlert`) when: users count dropped > max(2, 20%) vs KV baseline
+  `secBaseline` (mass deletion), admin_auth_fail ≥10/h (key brute-force),
+  or login_fail ≥50/h (credential stuffing). Baseline always rewritten
+  after a real (non-dry) check.
+- **Admin**: `GET /admin/security` → `{recent (last 30 rows),
+  failedAdmin24h, failedLogin24h, users, sessions, canaryOk}` (canaryOk =
+  canary row present, zero canary_login events, zero canary sessions);
+  `GET /admin/security-check` = ALWAYS-dry run of the anomaly check (never
+  alerts, never moves the baseline — same standing rule as deadman-check).
+  admin.html renders a Security card on Overview (right column, below
+  Kill-switches): 3 KPIs + last-12 events table, loaded in loadAll().
+- **Never send test messages to the owner ntfy topic** — alert paths are
+  verified by code inspection + the dry routes only. Note wrong-key admin
+  pings and bad logins DO create real log rows (that's fine, it's the
+  point); the e2e check used exactly one of each.
+
 ## Multi-agent coordination
 
 - **Lanes**: (1) UI/template → `template.html` on `claude/state`; (2) scoring/pipeline →

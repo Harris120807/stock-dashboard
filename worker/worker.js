@@ -25,6 +25,8 @@
 //   POST /admin/add-tickers -> dispatch add-tickers.yml with the form input
 //   GET  /admin/stats?days= -> traffic from Analytics Engine (needs Worker
 //                              secret CF_ANALYTICS_TOKEN with Account Analytics:Read)
+//   GET  /admin/security    -> intrusion-monitor status (security_log, canary)
+//   GET  /admin/security-check -> DRY run of the hourly anomaly check
 // Every request logs an anonymous data point (route group + country) to the
 // Analytics Engine dataset `stockdash_traffic` (binding TRAFFIC).
 // Kill-switches: livePrices gates /prices, fullRefresh gates /refresh,
@@ -181,7 +183,10 @@ const ACCOUNT_ID = 'e3f3a97cb1349addb9ec089f9383d12d';
 const AE_DATASET = 'stockdash_traffic';
 
 async function handleAdmin(route, req, env, ctx) {
-  if (!(await adminAuthed(req, env))) return json({ error: 'unauthorized' }, 401, 0);
+  if (!(await adminAuthed(req, env))) {
+    secLog(env, ctx, 'admin_auth_fail', route, req);
+    return json({ error: 'unauthorized' }, 401, 0);
+  }
 
   if (route === 'admin/ping') return json({ ok: true }, 200, 0);
 
@@ -309,6 +314,46 @@ async function handleAdmin(route, req, env, ctx) {
     return json(await deadmanCheck(env, true), 200, 0);
   }
 
+  if (route === 'admin/security' && req.method === 'GET') {
+    // intrusion-monitoring status for the admin Security panel: recent events,
+    // 24h failure counts, account totals, and the canary account's health
+    if (!env.DB) return json({ error: 'accounts not provisioned' }, 503, 0);
+    const now = Math.floor(Date.now() / 1000);
+    const recent = ((await env.DB.prepare(
+      'SELECT kind, at, detail, country FROM security_log ORDER BY id DESC LIMIT 30'
+    ).all()).results) || [];
+    const c24 = k => env.DB.prepare('SELECT COUNT(*) AS n FROM security_log WHERE kind = ? AND at > ?').bind(k, now - 86400).first();
+    const [fa, fl, uc, sc] = await Promise.all([
+      c24('admin_auth_fail'), c24('login_fail'),
+      env.DB.prepare('SELECT COUNT(*) AS n FROM users').first(),
+      env.DB.prepare('SELECT COUNT(*) AS n FROM sessions').first(),
+    ]);
+    let canaryOk = false;
+    try {
+      const cid = await canaryId(env);
+      if (cid) {
+        const [row, trips, sess] = await Promise.all([
+          env.DB.prepare('SELECT id FROM users WHERE id = ?').bind(cid).first(),
+          env.DB.prepare("SELECT COUNT(*) AS n FROM security_log WHERE kind = 'canary_login'").first(),
+          env.DB.prepare('SELECT COUNT(*) AS n FROM sessions WHERE user_id = ?').bind(cid).first(),
+        ]);
+        canaryOk = !!row && !((trips || {}).n) && !((sess || {}).n);
+      }
+    } catch (e) { /* canaryOk stays false — absence of proof is itself a flag */ }
+    return json({
+      recent,
+      failedAdmin24h: (fa || {}).n || 0, failedLogin24h: (fl || {}).n || 0,
+      users: (uc || {}).n || 0, sessions: (sc || {}).n || 0,
+      canaryOk,
+    }, 200, 0);
+  }
+
+  if (route === 'admin/security-check' && req.method === 'GET') {
+    // ALWAYS a dry run (same standing rule as deadman-check): reports what the
+    // hourly anomaly check would do — never alerts, never moves the baseline
+    return json(await securityCheck(env, true), 200, 0);
+  }
+
   if (route === 'admin/stats') {
     const days = Math.min(30, Math.max(1, parseInt(new URL(req.url).searchParams.get('days') || '7', 10) || 7));
     // Preferred: Analytics Engine SQL (per-route breakdown) — needs a scoped
@@ -419,13 +464,25 @@ const mailWrap = body => `<div style="background:#f4f6fa;padding:32px 16px;font-
   </div></div>`;
 const mailBtn = (href, label) => `<p style="margin:20px 0 6px"><a href="${href}" style="display:inline-block;background:#1e4f91;color:#ffffff;padding:12px 22px;border-radius:9px;text-decoration:none;font-weight:600">${label}</a></p>`;
 
-async function sessionUser(req, env) {
+async function sessionUser(req, env, ctx) {
   const tok = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
   if (!/^[a-f0-9]{64}$/.test(tok)) return null;
   const now = Math.floor(Date.now() / 1000);
-  return env.DB.prepare(
+  const row = await env.DB.prepare(
     'SELECT u.id, u.email, u.verified, s.token FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ? AND s.expires_at > ?'
   ).bind(tok, now).first();
+  if (row) {
+    // canary tripwire: a session can only resolve to the canary account if
+    // someone forged one from DB contents — that's a compromise signal
+    try {
+      const cid = await canaryId(env);
+      if (cid && row.id === cid) {
+        const p = canaryTrip(env, req, 'session token resolved to the canary account');
+        if (ctx) ctx.waitUntil(p);
+      }
+    } catch (e) { /* detection must never break auth */ }
+  }
+  return row;
 }
 
 async function issueSession(env, userId) {
@@ -467,6 +524,7 @@ async function handleAuth(route, req, env, ctx) {
     const hash = await pwHash(pw, salt);
     const res = await env.DB.prepare('INSERT INTO users (email, pw_hash, salt) VALUES (?, ?, ?)').bind(email, hash, salt).run();
     const uid = res.meta.last_row_id;
+    secLog(env, ctx, 'signup', 'auth/signup', req);
     try { await sendVerifyMail(env, uid, email); } catch (e) { /* account still usable; resend available */ }
     const token = await issueSession(env, uid);
     return json(await userPayload(env, { id: uid, email, verified: 0 }, token), 200, 0);
@@ -476,14 +534,22 @@ async function handleAuth(route, req, env, ctx) {
     if (!email) return json({ error: 'enter your email' }, 400, 0);
     if (!(await rateOk(env, 'li:' + ip + ':' + email, 10, 3600))) return json({ error: 'too many attempts — try again later' }, 429, 0);
     const u = await env.DB.prepare('SELECT * FROM users WHERE email = ?').bind(email).first();
+    try {
+      // canary tripwire: nobody legitimate knows the canary email exists
+      const cid = await canaryId(env);
+      if (u && cid && u.id === cid) ctx.waitUntil(canaryTrip(env, req, 'login attempt on the canary account'));
+    } catch (e) { /* detection must never break auth */ }
     const ok = u && (await pwHash(String((body && body.password) || ''), u.salt)) === u.pw_hash;
-    if (!ok) return json({ error: 'wrong email or password' }, 401, 0);
+    if (!ok) {
+      secLog(env, ctx, 'login_fail', 'auth/login', req);
+      return json({ error: 'wrong email or password' }, 401, 0);
+    }
     const token = await issueSession(env, u.id);
     return json(await userPayload(env, u, token), 200, 0);
   }
 
   if (route === 'auth/logout' && req.method === 'POST') {
-    const u = await sessionUser(req, env);
+    const u = await sessionUser(req, env, ctx);
     if (u) await env.DB.prepare('DELETE FROM sessions WHERE token = ?').bind(u.token).run();
     return json({ ok: true }, 200, 0);
   }
@@ -500,7 +566,7 @@ async function handleAuth(route, req, env, ctx) {
   }
 
   if (route === 'auth/resend-verify' && req.method === 'POST') {
-    const u = await sessionUser(req, env);
+    const u = await sessionUser(req, env, ctx);
     if (!u) return json({ error: 'not signed in' }, 401, 0);
     if (u.verified) return json({ ok: true, note: 'already verified' }, 200, 0);
     if (!(await rateOk(env, 'rv:' + u.id, 3, 3600))) return json({ error: 'too many attempts — try again later' }, 429, 0);
@@ -534,6 +600,11 @@ async function handleAuth(route, req, env, ctx) {
     const now = Math.floor(Date.now() / 1000);
     const row = await env.DB.prepare("SELECT user_id FROM tokens WHERE token = ? AND kind = 'reset' AND expires_at > ?").bind(t, now).first();
     if (!row) return json({ error: 'this reset link has expired — request a new one' }, 400, 0);
+    try {
+      const cid = await canaryId(env);
+      if (cid && row.user_id === cid) ctx.waitUntil(canaryTrip(env, req, 'password reset on the canary account'));
+    } catch (e) { /* detection must never break auth */ }
+    secLog(env, ctx, 'password_reset', 'auth/reset', req);
     const salt = randHex(16);
     const hash = await pwHash(pw, salt);
     await env.DB.prepare('UPDATE users SET pw_hash = ?, salt = ?, verified = 1 WHERE id = ?').bind(hash, salt, row.user_id).run();
@@ -545,7 +616,7 @@ async function handleAuth(route, req, env, ctx) {
   }
 
   if (route === 'auth/delete-account' && req.method === 'POST') {
-    const u = await sessionUser(req, env);
+    const u = await sessionUser(req, env, ctx);
     if (!u) return json({ error: 'not signed in' }, 401, 0);
     await env.DB.batch([
       env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(u.id),
@@ -553,18 +624,19 @@ async function handleAuth(route, req, env, ctx) {
       env.DB.prepare('DELETE FROM watchlists WHERE user_id = ?').bind(u.id),
       env.DB.prepare('DELETE FROM users WHERE id = ?').bind(u.id),
     ]);
+    secLog(env, ctx, 'account_delete', 'auth/delete-account', req);
     return json({ ok: true, note: 'account and data deleted' }, 200, 0);
   }
 
   if (route === 'me' && req.method === 'GET') {
-    const u = await sessionUser(req, env);
+    const u = await sessionUser(req, env, ctx);
     if (!u) return json({ error: 'not signed in' }, 401, 0);
     const full = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(u.id).first();
     return json(await userPayload(env, full, undefined), 200, 0);
   }
 
   if (route === 'me/alerts' && req.method === 'POST') {
-    const u = await sessionUser(req, env);
+    const u = await sessionUser(req, env, ctx);
     if (!u) return json({ error: 'not signed in' }, 401, 0);
     const on = !!(body && body.on);
     if (on) {
@@ -587,7 +659,7 @@ async function handleAuth(route, req, env, ctx) {
   }
 
   if (route === 'me/watchlist' && req.method === 'PUT') {
-    const u = await sessionUser(req, env);
+    const u = await sessionUser(req, env, ctx);
     if (!u) return json({ error: 'not signed in' }, 401, 0);
     const list = body && body.tickers;
     if (!Array.isArray(list) || list.length > 100 || !list.every(t => typeof t === 'string' && TICK_RE.test(t))) {
@@ -682,6 +754,99 @@ async function deadmanCheck(env, dry) {
   return out;
 }
 
+// ---------- security monitoring (2026-07-26): D1 tamper/intrusion detection ----------
+// Best-effort event log (D1 table security_log) + a canary decoy account + an
+// hourly anomaly check piggybacked on the dead-man cron. All of it is wrapped
+// so a broken security path can NEVER break serving. detail holds route names
+// or generic text only — never emails, passwords or tokens.
+
+// Fire-and-forget event log row. Returns the (already .catch'd) promise so
+// callers inside waitUntil'd work can await it; request handlers pass ctx.
+function secLog(env, ctx, kind, detail, req) {
+  try {
+    if (!env.DB) return;
+    const p = env.DB.prepare('INSERT INTO security_log (at, kind, detail, country) VALUES (?, ?, ?, ?)')
+      .bind(Math.floor(Date.now() / 1000), kind, String(detail || '').slice(0, 80), (req && req.cf && req.cf.country) || null)
+      .run().catch(() => {});
+    if (ctx) ctx.waitUntil(p);
+    return p;
+  } catch (e) { /* security logging must never break serving */ }
+}
+
+// The canary user's id lives in KV ('canaryUserId'). The deploy token can't
+// write KV, so if the key is missing the Worker resolves it from D1 once
+// (the canary is the only 'canary+…@valuetally.com' row) and persists it.
+async function canaryId(env) {
+  try {
+    const v = await env.CONFIG?.get('canaryUserId', { cacheTtl: 300 });
+    if (v) return Number(v) || null;
+    const row = await env.DB?.prepare("SELECT id FROM users WHERE email LIKE 'canary+%@valuetally.com' ORDER BY id LIMIT 1").first();
+    if (row && row.id) { await env.CONFIG?.put('canaryUserId', String(row.id)); return row.id; }
+  } catch (e) { /* no canary known — checks degrade gracefully */ }
+  return null;
+}
+
+// The canary account's credentials exist NOWHERE outside its DB row — no
+// mailbox, no password anyone was ever told. Any login attempt or session that
+// resolves to it therefore means someone is reading/using database contents.
+// Always logs; ntfy is capped to one per 30 min purely to avoid a flood loop.
+async function canaryTrip(env, req, via) {
+  try {
+    await secLog(env, null, 'canary_login', via, req);
+    const last = Number(await env.CONFIG?.get('canaryLastAlert')) || 0;
+    if (Date.now() - last < 30 * 60 * 1000) return;
+    await env.CONFIG?.put('canaryLastAlert', String(Date.now()));
+    await fetch(OWNER_NTFY, {
+      method: 'POST',
+      headers: { 'Title': 'ValueTally SECURITY ALERT', 'Tags': 'rotating_light',
+                 'Click': 'https://valuetally.com/admin' },
+      body: `Canary account touched (${via}). Its credentials exist nowhere legitimate, so this very likely means the accounts database has been read or copied. Check the admin Security panel; consider rotating the Worker secrets and forcing password resets.`,
+    });
+  } catch (e) { /* never break the request that tripped it */ }
+}
+
+// Hourly anomaly check (piggybacks the '15 10-19 * * 1-5' dead-man cron).
+// Compares user/session counts against the KV baseline ('secBaseline') and
+// scans the last hour of security_log. dry=true (the /admin/security-check
+// route) NEVER alerts and NEVER moves the baseline.
+async function securityCheck(env, dry) {
+  const out = { dry: !!dry, wouldAlert: false, reasons: [], alerted: false };
+  try {
+    if (!env.DB) { out.error = 'accounts not provisioned'; return out; }
+    const now = Math.floor(Date.now() / 1000);
+    const n1 = async (sql, ...binds) => ((await env.DB.prepare(sql).bind(...binds).first()) || {}).n || 0;
+    out.users = await n1('SELECT COUNT(*) AS n FROM users');
+    out.sessions = await n1('SELECT COUNT(*) AS n FROM sessions');
+    out.adminFails1h = await n1("SELECT COUNT(*) AS n FROM security_log WHERE kind = 'admin_auth_fail' AND at > ?", now - 3600);
+    out.loginFails1h = await n1("SELECT COUNT(*) AS n FROM security_log WHERE kind = 'login_fail' AND at > ?", now - 3600);
+    let base = null;
+    try { base = JSON.parse((await env.CONFIG?.get('secBaseline')) || 'null'); } catch (e) { /* first run */ }
+    out.baseline = base;
+    if (base && typeof base.users === 'number') {
+      const drop = base.users - out.users;
+      if (drop > Math.max(2, base.users * 0.2)) out.reasons.push(`user count fell ${base.users} → ${out.users} since the last check (possible mass deletion)`);
+    }
+    if (out.adminFails1h >= 10) out.reasons.push(out.adminFails1h + ' failed admin-key attempts in the last hour (possible key brute-force)');
+    if (out.loginFails1h >= 50) out.reasons.push(out.loginFails1h + ' failed logins in the last hour (possible credential stuffing)');
+    out.wouldAlert = out.reasons.length > 0;
+    if (dry) return out;
+    // baseline always moves after a real check, alert or not
+    await env.CONFIG?.put('secBaseline', JSON.stringify({ users: out.users, sessions: out.sessions, at: now }));
+    if (!out.wouldAlert) return out;
+    const last = Number(await env.CONFIG?.get('secLastAlert')) || 0;
+    if (Date.now() - last < 4 * 3600 * 1000) { out.deduped = true; return out; }
+    await env.CONFIG?.put('secLastAlert', String(Date.now()));
+    await fetch(OWNER_NTFY, {
+      method: 'POST',
+      headers: { 'Title': 'ValueTally security warning', 'Tags': 'warning',
+                 'Click': 'https://valuetally.com/admin' },
+      body: 'Accounts-database anomaly: ' + out.reasons.join('; ') + '. Details on the admin Security panel.',
+    });
+    out.alerted = true;
+  } catch (e) { out.error = String((e && e.message) || e); }
+  return out;
+}
+
 // ---------- Saturday weekly wrap (2026-07-25) ----------
 // One email per opted-in verified user with a watchlist: the universe's week
 // (top/bottom movers by weekChange, computed by refresh.py from the daily
@@ -737,7 +902,10 @@ export default {
   async scheduled(event, env, ctx) {
     // three crons share this handler — dispatch on the expression
     if (event.cron === '0 9 * * 6') ctx.waitUntil(sendWeekly(env, ctx));
-    else if (event.cron === '15 10-19 * * 1-5') ctx.waitUntil(deadmanCheck(env, false));
+    else if (event.cron === '15 10-19 * * 1-5') {
+      ctx.waitUntil(deadmanCheck(env, false));
+      ctx.waitUntil(securityCheck(env, false));   // hourly accounts-DB anomaly check
+    }
     else ctx.waitUntil(sendDigests(env, ctx)); // 30 20 * * 1-5 daily digest
   },
   async fetch(req, env, ctx) {
