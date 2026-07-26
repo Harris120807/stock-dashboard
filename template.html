@@ -956,10 +956,14 @@
           <div class="pf-expl">
             <p style="margin:6px 0">Connect your Trading 212 account to see your holdings here — quantities, value and profit/loss, with covered stocks linked straight to their score pages.</p>
             <p style="margin:6px 0">In the Trading 212 app go to <b>Settings → API</b> and generate a key. The permission list has many checkboxes — tick <b>Portfolio</b> (required; lets us read your positions) and, if you want your account currency shown here, <b>Account&nbsp;data</b>. Leave every order/trading permission unticked — this page only ever reads, and a key without trading permissions can never place trades or move money.</p>
-            <p style="margin:6px 0">The key is stored <b>encrypted</b>, used only to read your positions when you open this tab, and you can disconnect any time — that deletes it immediately.</p>
+            <p style="margin:6px 0">Trading 212 shows <b>two values</b>: the API key and a <b>secret key</b> (displayed only once, when the key is created). Paste both below — if you no longer have the secret, generate a fresh key.</p>
+            <p style="margin:6px 0">Both are stored <b>encrypted</b>, used only to read your positions when you open this tab, and you can disconnect any time — that deletes them immediately.</p>
           </div>
           <div class="pf-key-row">
-            <input id="pfKey" type="password" placeholder="Paste your Trading 212 API key" autocomplete="off" spellcheck="false">
+            <input id="pfKey" type="password" placeholder="API key" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="pf-key-row">
+            <input id="pfSecret" type="password" placeholder="Secret key (shown once at creation)" autocomplete="off" spellcheck="false">
             <button class="acct-primary" id="pfConnectBtn" style="width:auto;margin-top:0;padding:9px 22px">Connect</button>
           </div>
           <div class="acct-msg" id="pfMsg"></div>
@@ -3759,20 +3763,21 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
   document.addEventListener('viewchange', e => { if (e.detail === 'portfolio') renderPortfolioView(); });
 
   (function pfConnectForm(){
-    const btn = document.getElementById('pfConnectBtn'), inp = document.getElementById('pfKey');
+    const btn = document.getElementById('pfConnectBtn'), inp = document.getElementById('pfKey'), sec = document.getElementById('pfSecret');
     if (!btn) return;
     const msg = (cls, t) => { const m = document.getElementById('pfMsg'); m.className = 'acct-msg ' + cls; m.textContent = t; };
     btn.onclick = async () => {
-      const key = (inp.value || '').trim();
-      if (key.length < 15){ msg('err', 'Paste the full API key from the Trading 212 app (Settings → API).'); return; }
+      const key = (inp.value || '').trim(), secret = (sec.value || '').trim();
+      if (key.length < 10){ msg('err', 'Paste the API key from the Trading 212 app (Settings → API).'); return; }
+      if (secret.length < 10){ msg('err', 'Paste the secret key too — Trading 212 shows it once when the key is created. Lost it? Generate a fresh key.'); return; }
       btn.disabled = true;
       msg('', 'Checking the key with Trading 212…');
       try {
-        const r = await api('/me/t212', { method: 'POST', body: JSON.stringify({ key }) });
+        const r = await api('/me/t212', { method: 'POST', body: JSON.stringify({ key, secret }) });
         const d = await r.json().catch(() => ({}));
         if (r.status === 401){ SESSION = null; saveSession(); updateAcctBtn(); btn.disabled = false; renderPortfolioView(); return; }
         if (!r.ok) throw new Error(d.error || 'Could not connect — try again.');
-        inp.value = '';
+        inp.value = ''; sec.value = '';
         msg('ok', 'Connected' + (d.env === 'demo' ? ' (practice account)' : '') + ' — loading your holdings…');
         resetPF();
         loadPortfolio();

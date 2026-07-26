@@ -548,8 +548,14 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   in git, never printed; rotating it makes stored keys undecryptable →
   users just see the reconnect prompt, no data loss beyond that). NEVER
   store broker keys plaintext. Keys are never echoed in any response/log.
-- **Worker routes** (sessionUser-gated, no-store): `POST /me/t212 {key}` —
-  format check (15–300 non-space chars), validate via T212
+- **T212 auth is HTTP BASIC with a key+secret PAIR (2026-07-26 evening)**:
+  the app's key-creation screen shows an API key AND a one-time secret;
+  `Authorization: Basic base64(key:secret)`. The older single-token header
+  just 401s (burned an hour on the owner's valid keys). Stored credential =
+  `key:secret` in one encrypted blob; t212Fetch falls back to the raw-token
+  header for any legacy colon-less value. Connect form has TWO fields.
+- **Worker routes** (sessionUser-gated, no-store): `POST /me/t212
+  {key, secret}` — format check (10–300 non-space chars each), validate via T212
   **`/equity/portfolio`** against **live first, then demo** (remembers which
   env worked). NOT /equity/account/cash: T212 keys have GRANULAR permission
   checkboxes and a Portfolio-only key 403s on account endpoints — that

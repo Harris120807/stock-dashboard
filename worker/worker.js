@@ -517,8 +517,14 @@ async function vaultDecrypt(env, b64) {
 // limits are strict (~1 req / 5s per endpoint per key) — portfolio responses
 // are KV-cached 60s per user and the page throttles its refresh button.
 const T212_BASE = { live: 'https://live.trading212.com/api/v0', demo: 'https://demo.trading212.com/api/v0' };
-const t212Fetch = (envName, path, key) =>
-  fetch(T212_BASE[envName] + path, { headers: { 'Authorization': key, 'Accept': 'application/json' } });
+// T212 auth is HTTP Basic with an API key + secret pair (verified 2026-07-26 —
+// the older single-token header now just 401s). Stored credential = "key:secret";
+// a legacy colon-less value falls back to the raw-token header.
+const t212Fetch = (envName, path, cred) =>
+  fetch(T212_BASE[envName] + path, { headers: {
+    'Authorization': cred.includes(':') ? 'Basic ' + btoa(cred) : cred,
+    'Accept': 'application/json',
+  } });
 
 async function sessionUser(req, env, ctx) {
   const tok = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
@@ -727,8 +733,11 @@ async function handleAuth(route, req, env, ctx) {
     const u = await sessionUser(req, env, ctx);
     if (!u) return json({ error: 'not signed in' }, 401, 0);
     if (!env.VAULT_KEY) return json({ error: 'broker connections not provisioned' }, 503, 0);
-    const key = String((body && body.key) || '').trim();
-    if (!/^\S{15,300}$/.test(key)) return json({ error: 'that does not look like a Trading 212 API key — copy it from the T212 app (Settings → API)' }, 400, 0);
+    const apiKey = String((body && body.key) || '').trim();
+    const secret = String((body && body.secret) || '').trim();
+    if (!/^\S{10,300}$/.test(apiKey)) return json({ error: 'that does not look like a Trading 212 API key — copy it from the T212 app (Settings → API)' }, 400, 0);
+    if (!/^\S{10,300}$/.test(secret)) return json({ error: 'the secret key is missing — Trading 212 shows it once when the key is created; paste both fields' }, 400, 0);
+    const key = apiKey + ':' + secret;
     if (!(await rateOk(env, 'br:' + u.id, 6, 300))) return json({ error: 'too many attempts — try again in a few minutes' }, 429, 0);
     // Validate against /equity/portfolio — the ONLY endpoint this feature
     // needs. T212 keys have granular permission checkboxes; a key with just
