@@ -730,21 +730,32 @@ async function handleAuth(route, req, env, ctx) {
     const key = String((body && body.key) || '').trim();
     if (!/^\S{15,300}$/.test(key)) return json({ error: 'that does not look like a Trading 212 API key — copy it from the T212 app (Settings → API)' }, 400, 0);
     if (!(await rateOk(env, 'br:' + u.id, 6, 300))) return json({ error: 'too many attempts — try again in a few minutes' }, 429, 0);
-    let t212env = null, r = null;
+    // Validate against /equity/portfolio — the ONLY endpoint this feature
+    // needs. T212 keys have granular permission checkboxes; a key with just
+    // the Portfolio permission 403s on /equity/account/cash, which used to
+    // fail perfectly good keys here.
+    let t212env = null, r = null, rLive = null;
     try {
-      r = await t212Fetch('live', '/equity/account/cash', key);
+      rLive = r = await t212Fetch('live', '/equity/portfolio', key);
       if (r.ok) t212env = 'live';
-      else if (r.status === 401 || r.status === 403) {
-        r = await t212Fetch('demo', '/equity/account/cash', key);
+      else {
+        // practice keys 401 on the live host — try demo before giving up
+        r = await t212Fetch('demo', '/equity/portfolio', key);
         if (r.ok) t212env = 'demo';
       }
     } catch (e) { return json({ error: 'could not reach Trading 212 — try again shortly' }, 502, 0); }
     if (!t212env) {
       if (r && r.status === 429) return json({ error: 'Trading 212 is rate-limiting right now — wait a few seconds and try again' }, 429, 0);
-      return json({ error: 'Trading 212 did not accept this key — check it is copied in full and still active' }, 400, 0);
+      const st = `${rLive ? rLive.status : '?'} live / ${r ? r.status : '?'} demo`;
+      const scopeHint = (rLive && rLive.status === 403) || (r && r.status === 403)
+        ? ' — the key was recognised but lacks the Portfolio permission: regenerate it with Portfolio ticked'
+        : ' — check it is copied in full, is the API key (not the account number), and still active';
+      return json({ error: `Trading 212 did not accept this key (${st})${scopeHint}` }, 400, 0);
     }
+    const rawPf = await r.json().catch(() => null);
     let currency = null;
     try {
+      // optional — needs the Account data permission; skipped silently without it
       const ri = await t212Fetch(t212env, '/equity/account/info', key);
       if (ri.ok) currency = ((await ri.json()) || {}).currencyCode || null;
     } catch (e) { /* label only — connection still succeeds */ }
@@ -756,7 +767,15 @@ async function handleAuth(route, req, env, ctx) {
     ).bind(u.id, enc, t212env, now, 't212', enc, t212env, now).run();
     try {
       if (currency) await env.CONFIG?.put('t212cur:' + u.id, currency, { expirationTtl: 30 * 86400 });
-      await env.CONFIG?.delete('t212:' + u.id);   // drop any stale cached portfolio
+      // prime the portfolio cache with the validation response — the page loads
+      // holdings right after connecting, and T212 only allows ~1 req/5s
+      const positions = (Array.isArray(rawPf) ? rawPf : []).map(p => ({
+        t212: p.ticker, qty: p.quantity, avgPrice: p.averagePrice, price: p.currentPrice,
+        ppl: p.ppl ?? null, fxPpl: p.fxPpl ?? null,
+      }));
+      await env.CONFIG?.put('t212:' + u.id, JSON.stringify(
+        { connected: true, env: t212env, currency, positions, fetchedAt: new Date().toISOString() }
+      ), { expirationTtl: 60 });
     } catch (e) { /* cache only */ }
     secLog(env, ctx, 't212_connect', 'env=' + t212env, req);
     return json({ ok: true, currency, env: t212env }, 200, 0);

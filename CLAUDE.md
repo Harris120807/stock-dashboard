@@ -550,9 +550,15 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   store broker keys plaintext. Keys are never echoed in any response/log.
 - **Worker routes** (sessionUser-gated, no-store): `POST /me/t212 {key}` —
   format check (15–300 non-space chars), validate via T212
-  `/equity/account/cash` against **live first, then demo** on 401/403
-  (remembers which env worked), fetch `/equity/account/info` for
-  currencyCode, encrypt+upsert, rate-limited 6/5min per user;
+  **`/equity/portfolio`** against **live first, then demo** (remembers which
+  env worked). NOT /equity/account/cash: T212 keys have GRANULAR permission
+  checkboxes and a Portfolio-only key 403s on account endpoints — that
+  mis-rejected the owner's valid key on day one (fixed 2026-07-26; error
+  now surfaces upstream statuses + a scope hint, and the validation
+  response primes the 60s portfolio cache so the immediate page load
+  doesn't hit T212's ~1 req/5s limit). `/equity/account/info` (currencyCode)
+  needs the Account-data permission and is skipped silently without it.
+  Then encrypt+upsert, rate-limited 6/5min per user;
   `POST /me/t212/delete` — row + KV caches wiped; `GET /me/portfolio` —
   404 `{connected:false}` when no key, else decrypt → T212
   `/equity/portfolio` from the stored env, positions mapped to

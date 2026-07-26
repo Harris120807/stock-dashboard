@@ -955,7 +955,7 @@
         <div id="pfConnect" style="display:none">
           <div class="pf-expl">
             <p style="margin:6px 0">Connect your Trading 212 account to see your holdings here — quantities, value and profit/loss, with covered stocks linked straight to their score pages.</p>
-            <p style="margin:6px 0">In the Trading 212 app go to <b>Settings → API</b> and generate a key with <b>read-only</b> permissions — that is all this needs, and a read-only key can never place trades or move money.</p>
+            <p style="margin:6px 0">In the Trading 212 app go to <b>Settings → API</b> and generate a key. The permission list has many checkboxes — tick <b>Portfolio</b> (required; lets us read your positions) and, if you want your account currency shown here, <b>Account&nbsp;data</b>. Leave every order/trading permission unticked — this page only ever reads, and a key without trading permissions can never place trades or move money.</p>
             <p style="margin:6px 0">The key is stored <b>encrypted</b>, used only to read your positions when you open this tab, and you can disconnect any time — that deletes it immediately.</p>
           </div>
           <div class="pf-key-row">
