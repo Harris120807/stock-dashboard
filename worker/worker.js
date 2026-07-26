@@ -312,6 +312,24 @@ async function handleAdmin(route, req, env, ctx) {
     return json({ users: u.total || 0, verified: u.verified || 0, alerts: u.alerts || 0, watchlists: w.n || 0 }, 200, 0);
   }
 
+  if (route === 'admin/users' && req.method === 'GET') {
+    // account list for the owner: emails + status flags. Admin-key gated,
+    // never cached. The security canary account is hidden (it's plumbing,
+    // not a user — and listing it would just cause confusion).
+    if (!env.DB) return json({ error: 'accounts not provisioned' }, 503, 0);
+    const rows = (await env.DB.prepare(
+      `SELECT u.email, u.verified, u.alerts, u.created_at,
+              CASE WHEN w.tickers IS NOT NULL AND w.tickers != '[]' THEN 1 ELSE 0 END AS has_watchlist,
+              CASE WHEN b.user_id IS NOT NULL THEN 1 ELSE 0 END AS has_broker
+       FROM users u
+       LEFT JOIN watchlists w ON w.user_id = u.id
+       LEFT JOIN broker_keys b ON b.user_id = u.id
+       WHERE u.email NOT LIKE 'canary+%@valuetally.com'
+       ORDER BY u.created_at DESC LIMIT 500`
+    ).all()).results || [];
+    return json({ users: rows }, 200, 0);
+  }
+
   if (route === 'admin/deadman-check' && req.method === 'GET') {
     // ALWAYS a dry run — reports what the dead-man cron would do without ever
     // pinging the owner's ntfy topic (no test messages there, standing rule)

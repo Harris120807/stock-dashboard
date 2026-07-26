@@ -90,6 +90,7 @@ a{color:var(--accent)}
       <button class="atab" data-atab="requests">Requests</button>
       <button class="atab" data-atab="backtest">Backtest</button>
       <button class="atab" data-atab="track">Track record</button>
+      <button class="atab" data-atab="users">Accounts</button>
     </div>
 
     <div id="atab-overview">
@@ -210,6 +211,15 @@ a{color:var(--accent)}
       baskets; the next day's actual moves are credited to yesterday's picks (equal weight, daily rebalance into whatever
       the baskets then hold, no costs/dividends). This is the real out-of-sample record from the start date — unlike the
       Backtest tab, nothing is reconstructed. Short history = low confidence; let it run.</div>
+    </div>
+    </div>
+
+    <div id="atab-users" class="hidden">
+    <div class="card">
+      <h2>Accounts</h2>
+      <div class="hint" style="margin:0 0 10px" id="uHint">Every registered account. Emails are shown only here, behind your admin key — they never appear in any public or cached response. The security canary account is hidden.</div>
+      <table id="uTbl"><thead><tr><th>Email</th><th>Verified</th><th>Alerts</th><th>Watchlist</th><th>Broker link</th><th>Joined</th></tr></thead><tbody></tbody></table>
+      <div class="msg" id="uMsg"></div>
     </div>
     </div>
 
@@ -516,11 +526,12 @@ document.querySelectorAll('[data-wf]').forEach(btn => btn.addEventListener('clic
 
 document.querySelectorAll('.atab').forEach(b => b.addEventListener('click', () => {
   document.querySelectorAll('.atab').forEach(x => x.classList.toggle('on', x === b));
-  ['overview', 'requests', 'backtest', 'track'].forEach(t =>
+  ['overview', 'requests', 'backtest', 'track', 'users'].forEach(t =>
     document.getElementById('atab-' + t).classList.toggle('hidden', b.dataset.atab !== t));
   if (b.dataset.atab === 'requests') loadRequests();
   if (b.dataset.atab === 'backtest') loadBacktest();
   if (b.dataset.atab === 'track') loadTrack();
+  if (b.dataset.atab === 'users') loadUsers();
 }));
 
 const BT_URL = 'https://raw.githubusercontent.com/Harris120807/stock-dashboard/claude/state/backtest.json';
@@ -621,6 +632,29 @@ async function loadTrack() {
     wrap.innerHTML = '';
     $('trMsg').textContent = 'No track record yet — it starts logging with the next hourly refresh and needs at least two trading days to show a line.';
     $('trMsg').className = 'msg';
+  }
+}
+
+// ---- accounts list (owner-only; /admin/users) ----
+async function loadUsers() {
+  const tb = document.querySelector('#uTbl tbody');
+  try {
+    const d = await authFetch('/admin/users').then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    const rows = d.users || [];
+    $('uMsg').textContent = rows.length ? '' : 'No accounts yet.';
+    const tick = v => v ? '<span style="color:var(--good)">\u2713</span>' : '<span style="color:var(--muted)">\u2014</span>';
+    tb.innerHTML = rows.map(u => `<tr>
+      <td>${String(u.email).replace(/</g, '&lt;')}</td>
+      <td>${tick(u.verified)}</td>
+      <td>${tick(u.alerts)}</td>
+      <td>${tick(u.has_watchlist)}</td>
+      <td>${tick(u.has_broker)}</td>
+      <td>${(v => { if (!v) return '\u2014'; const d = typeof v === 'number' ? new Date(v * 1000) : new Date(String(v).replace(' ', 'T') + 'Z'); return isNaN(d) ? '\u2014' : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }); })(u.created_at)}</td>
+    </tr>`).join('');
+  } catch (e) {
+    tb.innerHTML = '';
+    $('uMsg').textContent = 'Could not load accounts (' + e.message + ').';
+    $('uMsg').className = 'msg err';
   }
 }
 

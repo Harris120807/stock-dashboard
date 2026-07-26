@@ -579,6 +579,26 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   Gate "Accounts & privacy" paragraph now covers the broker key — keep it
   honest. The demo env is labeled "practice account" in the UI.
 
+## Admin accounts list / score quintiles (2026-07-26 late)
+
+- **Admin Accounts tab** (5th admin tab, owner-requested): `GET /admin/users`
+  (admin-key gated, no-store) → email, verified, alerts, has_watchlist,
+  has_broker, created_at for every account (LIMIT 500, newest first); the
+  security canary is EXCLUDED by email pattern. Emails appear ONLY here —
+  never in any public/cached response. admin.html `atab-users` pane +
+  `loadUsers()`; the tab-switcher pane list now includes 'users'.
+  `users.created_at` is a TEXT datetime in production (not epoch) — the
+  formatter handles both.
+- **Combined-score quintiles** (owner-requested): `computeQuintiles()` in
+  template.html buckets all covered stocks by combinedScore into fifths
+  (Q5 = top), client-side, at load and at the end of `recomputeDerived`.
+  Shown as a "Quintile" table column (in COLS/column picker) and a Q-tag +
+  sentence in the detail card's Combined Score box. Wording is deliberately
+  factual (which bucket) — backtest return numbers stay admin-side with
+  their caveats. These are the same buckets backtest.py ranks by.
+
+## Multi-agent coordination
+
 - **Lanes**: (1) UI/template → `template.html` on `claude/state`; (2) scoring/pipeline →
   `scripts/refresh.py` on `main`; (3) universe rules → `scripts/weekly_universe.py`;
   (4) analyst data → `scripts/daily_analyst.py`; (5) infra → `.github/workflows/*`.
@@ -631,6 +651,13 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   dead-man alarm cron (owner ntfy on stalled publishes, KV-deduped);
   Saturday weekly-wrap email cron; backtest switched to dividend-adjusted
   returns; Worker now runs three cron schedules.
+- 2026-07-26: watchlists made signed-in-only (union-merge removed); insider
+  activity (7-call analyst bundle); column picker; sector-peers table;
+  data-quality monitor (PR #21); admin user-stats; score-delta threshold
+  recalibration for the 0-100 scale; security monitoring (security_log +
+  canary tripwire + anomaly cron, via agent); Trading 212 portfolio import
+  (encrypted broker keys + #portfolio 9th tab, via agent); admin Accounts
+  tab (5th admin tab); combined-score quintile display.
 
 ## Open items (owner-side)
 

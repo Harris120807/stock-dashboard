@@ -1836,6 +1836,19 @@ function earnCountdown(d){
   return `<span class="e-chip">${days === 0 ? 'earnings today' : 'earnings in ' + days + 'd'}</span>`;
 }
 
+// ---------- combined-score quintiles ----------
+// Same buckets the backtest ranks by: all covered stocks sorted by combined
+// score, split into fifths. Q5 = top fifth. Recomputed after any client-side
+// score refresh (recomputeDerived calls this).
+function computeQuintiles(){
+  const scored = DATA.filter(d => typeof d.combinedScore === 'number')
+    .sort((a, b) => a.combinedScore - b.combinedScore);
+  const n = scored.length;
+  DATA.forEach(d => { d.quintile = null; });
+  scored.forEach((d, i) => { d.quintile = Math.min(5, 1 + Math.floor(i * 5 / n)); });
+}
+computeQuintiles();
+
 // ---------- Table ----------
 const COLS = [
   {key:'rank', label:'#', align:'right'},
@@ -1856,6 +1869,7 @@ const COLS = [
   {key:'valueScore', label:'Value Score', align:'right', tip:'RELATIVE — cheapness vs peers, adjusted for sector norms (higher = cheaper)'},
   {key:'indicatorScore', label:'Indicator', align:'right', tip:'Price trend, momentum & sentiment (1.00 = neutral)'},
   {key:'combinedScore', label:'Combined', align:'right', tip:'RELATIVE — Value × Indicator; ranks the watchlist'},
+  {key:'quintile', label:'Quintile', align:'right', tip:'Combined-score bucket across all covered stocks — Q5 = top fifth, Q1 = bottom fifth'},
   {key:'absoluteScore', label:'Absolute', align:'right', tip:'ABSOLUTE — own-merits rating vs frozen market & sector norms, ignores peers'},
   {key:'position', label:'Position', align:'right'},
   {key:'dataSource', label:'Source', align:'right'},
@@ -1943,6 +1957,7 @@ function renderBody(){
     valueScore: d => `<td><b>${fmtNum(d.valueScore)}</b></td>`,
     indicatorScore: d => `<td class="${d.indicatorScore!==null&&d.indicatorScore!==undefined?(d.indicatorScore>=1?'pos':'neg'):''}">${d.indicatorScore!==null&&d.indicatorScore!==undefined?fmtNum(d.indicatorScore,2):'—'}</td>`,
     combinedScore: d => `<td><b>${d.combinedScore!==null&&d.combinedScore!==undefined?fmtNum(d.combinedScore):'—'}</b></td>`,
+    quintile: d => `<td>${d.quintile ? 'Q' + d.quintile : '—'}</td>`,
     absoluteScore: d => `<td>${d.absoluteScore!==null&&d.absoluteScore!==undefined?fmtNum(d.absoluteScore):'—'}</td>`,
     position: d => `<td>${positionBadge(d.position)}</td>`,
     dataSource: d => `<td style="color:var(--text-muted); font-size:11px;">${(d.dataSource||'').includes('live') ? 'Finnhub live' : 'Prior snapshot'}</td>`,
@@ -2378,6 +2393,7 @@ function recomputeDerived(d){
     const idx = ranked.indexOf(x.valueScore);
     x.position = idx < third ? 'Overvalued' : (idx < 2*third ? 'Fair Value' : 'Undervalued');
   }
+  computeQuintiles();  // quintile buckets shift with the refreshed score
 }
 async function refreshStock(ticker){
   const d = DATA.find(x => x.ticker === ticker);
@@ -2645,9 +2661,9 @@ function renderDetailCard(d){
       </div>
       <div class="score-card">
         <div class="sc-kind">RELATIVE · VS PEERS</div>
-        <div class="sc-value">${d.combinedScore!==null&&d.combinedScore!==undefined?fmtNum(d.combinedScore):'—'}</div>
+        <div class="sc-value">${d.combinedScore!==null&&d.combinedScore!==undefined?fmtNum(d.combinedScore):'—'}${d.quintile ? `<span class="sc-tag">Q${d.quintile}</span>` : ''}</div>
         <div class="sc-name">Combined Score</div>
-        <div class="sc-sub">Value × Indicator — the ranking behind the watchlist.</div>
+        <div class="sc-sub">Value × Indicator — the ranking behind the watchlist.${d.quintile ? ` Currently quintile ${d.quintile} of 5 across covered stocks (Q5 = top fifth).` : ''}</div>
       </div>
       <div class="score-card">
         <div class="sc-kind abs">ABSOLUTE · VS MARKET NORMS</div>
