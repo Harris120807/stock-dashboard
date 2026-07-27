@@ -671,6 +671,22 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   (privacy: no key, no broker-derived data). Template draws an SVG value
   line + "£X now · +Y% since date" under the holdings table (needs ≥2 points
   — appears from the second trading day after connecting).
+- **ETF look-through (2026-07-27, owner request)**: common index ETFs held in
+  a connected T212 portfolio get a score after all — as the cap-weighted mean
+  of the covered constituents we ALREADY score. `ETF_BASKETS` (sp500/ndx/
+  allworld/ftse100/europe/hidiv basket definitions over DATA) + `ETF_MAP`
+  (~30 T212 base symbols: VUSA/CSPX/SPY→sp500, EQQQ→ndx top-100-US-non-fin,
+  VWRP/IWDA→allworld, VUKG/ISF→ftse100, VEUR/VEUA→europe, VHYL→hidiv…) +
+  `etfLT()` (cached per page load) in the accounts IIFE. Holdings-table cell
+  shows `BASE + ETF tag` with the look-through score in the tooltip;
+  analytics decompose each ETF's value into basket sector/region weights (the
+  allocation bars show what's owned THROUGH funds), include it in the
+  weighted portfolio score, list per-ETF look-through lines under the
+  profile, and EXCLUDE ETF positions from the single-stock >15% flag
+  (diversified by nature). Deliberately approximate (largest names, honest
+  `cov` wording) and NEVER in stock quintiles/watchlists — broad baskets are
+  mid by construction. Adding an ETF = one ETF_MAP entry (+ a basket def if
+  it's a new index).
 - **Portfolio analytics (template, client-only)**: `renderPfAnalytics()` in
   the accounts IIFE — allocation bars by sector/region/listing currency
   (converted `valueAcct` shares only), value-weighted combined score + its

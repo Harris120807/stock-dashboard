@@ -353,6 +353,7 @@
   .pf-bb-track { flex: 1; height: 9px; border-radius: 5px; background: var(--gridline); overflow: hidden; }
   .pf-bb-track span { display: block; height: 100%; background: var(--accent); border-radius: 5px; }
   .pf-bb-v { flex: 0 0 38px; text-align: right; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+  .pf-etf-tag { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: var(--gridline); color: var(--text-secondary); vertical-align: 1px; }
   /* custom alert rules (2026-07-27) */
   .rule-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 4px; }
   .rule-row input, .rule-row select { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--page); color: var(--text-primary); font: inherit; font-size: 13px; }
@@ -3911,6 +3912,62 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
     return null;
   }
 
+  // ----- ETF look-through (2026-07-27) -----
+  // An index ETF is a weighted basket, and we already score most of the big
+  // baskets: its look-through score = cap-weighted mean of the covered
+  // constituents' scores. Curated map of common T212 trackers → basket
+  // definitions over DATA; approximate by design (we hold the largest names,
+  // not the full index) and NEVER ranked against single stocks — broad-market
+  // baskets are mid by construction.
+  const ETF_BASKETS = {
+    sp500:    { label: 'S&P 500 tracker', cov: '≈90% of index weight covered', pick: d => !isEuRow(d) },
+    ndx:      { label: 'Nasdaq-100 tracker', cov: 'approximate basket: largest US non-financials', top: 100,
+                pick: d => !isEuRow(d) && !['Banking', 'Financial Services', 'Insurance'].includes(d.sector) },
+    allworld: { label: 'Global developed-world tracker', cov: 'largest constituents only — partial coverage', pick: () => true },
+    ftse100:  { label: 'FTSE 100 tracker', cov: '≈90% of index weight covered', pick: d => /\.L$/.test(d.ticker) },
+    europe:   { label: 'Developed Europe tracker', cov: 'largest constituents only — partial coverage', pick: d => isEuRow(d) },
+    hidiv:    { label: 'High-dividend world tracker', cov: 'approximate basket: covered names yielding ≥ 2%',
+                pick: d => typeof d.divYield === 'number' && d.divYield >= 2 },
+  };
+  const ETF_MAP = {
+    VUSA: 'sp500', VUAG: 'sp500', CSPX: 'sp500', CSP1: 'sp500', SPY: 'sp500', VOO: 'sp500', IVV: 'sp500', IUSA: 'sp500', SPYL: 'sp500',
+    QQQ: 'ndx', EQQQ: 'ndx', CNDX: 'ndx',
+    VWRP: 'allworld', VWRL: 'allworld', FWRG: 'allworld', SWDA: 'allworld', IWDA: 'allworld', VEVE: 'allworld', HMWO: 'allworld',
+    VUKG: 'ftse100', VUKE: 'ftse100', ISF: 'ftse100',
+    VEUR: 'europe', VEUA: 'europe', VERX: 'europe', IMEU: 'europe',
+    VHYL: 'hidiv', VHYG: 'hidiv',
+  };
+  function pfEtfBase(sym){
+    const m = /^([A-Za-z0-9.]+)_US_EQ$/.exec(sym || '')
+      || /^([A-Za-z0-9.]*[A-Z0-9.])[a-z]_EQ$/.exec(sym || '')
+      || /^([A-Za-z0-9.]+)_EQ$/.exec(sym || '');
+    if (!m) return null;
+    const base = m[1].toUpperCase();
+    return ETF_MAP[base] ? { base, key: ETF_MAP[base] } : null;
+  }
+  const _etfCache = {};
+  function etfLT(key){
+    if (_etfCache[key]) return _etfCache[key];
+    const def = ETF_BASKETS[key];
+    let basket = DATA.filter(d => typeof d.marketCap === 'number' && d.marketCap > 0 && def.pick(d));
+    basket.sort((a, b) => b.marketCap - a.marketCap);
+    if (def.top) basket = basket.slice(0, def.top);
+    const wtot = basket.reduce((s, d) => s + d.marketCap, 0) || 1;
+    let cw = 0, cn = 0, vw = 0, vn = 0;
+    const sec = {}, reg = {};
+    basket.forEach(d => {
+      const w = d.marketCap / wtot;
+      const s = d.sector || 'Unknown sector';
+      sec[s] = (sec[s] || 0) + w;
+      const r = isEuRow(d) ? 'UK / Europe' : 'US';
+      reg[r] = (reg[r] || 0) + w;
+      if (typeof d.combinedScore === 'number'){ cw += w * d.combinedScore; cn += w; }
+      if (typeof d.valueScore === 'number'){ vw += w * d.valueScore; vn += w; }
+    });
+    return _etfCache[key] = { label: def.label, cov: def.cov, n: basket.length,
+      combined: cn ? cw / cn : null, value: vn ? vw / vn : null, sec, reg };
+  }
+
   // ppl (and its total) are in the ACCOUNT currency; per-instrument prices are
   // in each instrument's own currency, so they render as plain numbers.
   const PF_CUR_SYM = { USD: '$', EUR: '€', GBP: '£' };
@@ -3998,8 +4055,12 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
       const val = (p.valueAcct !== null && p.valueAcct !== undefined) ? p.valueAcct : null;
       if (val !== null) totV += val; else totVAll = false;
       if (p.ppl !== null && p.ppl !== undefined) totP += p.ppl;
+      const ek = our ? null : pfEtfBase(p.t212);
+      const lt = ek ? etfLT(ek.key) : null;
       const name = our
         ? `<span class="pf-link" data-peer="${our}">${our}</span>`
+        : lt
+        ? `<span title="${esc2(lt.label)} — look-through combined score ${lt.combined !== null ? lt.combined.toFixed(1) : '—'} (cap-weighted over ${lt.n} covered name${lt.n === 1 ? '' : 's'}; ${esc2(lt.cov)})">${esc2(ek.base)} <span class="pf-etf-tag">ETF</span></span>`
         : `<span title="Not covered by ValueTally">${esc2(p.t212 || '?')}</span>`;
       return `<tr>
         <td>${name}</td>
@@ -4030,16 +4091,29 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
     const tot = vals.reduce((s, p) => s + p.valueAcct, 0);
     const bySector = {}, byRegion = {}, byCcy = {};
     let wSum = 0, wTot = 0;
+    const heldEtfs = {};   // base -> { lt, value } for the look-through lines
     vals.forEach(p => {
       const our = pfMap(p.t212);
       const rec = our ? DATA.find(x => x.ticker === our) : null;
-      const sec = rec ? (rec.sector || 'Unknown sector') : 'Not covered here';
-      bySector[sec] = (bySector[sec] || 0) + p.valueAcct;
-      const reg = rec ? (isEuRow(rec) ? 'UK / Europe' : 'US') : 'Other';
-      byRegion[reg] = (byRegion[reg] || 0) + p.valueAcct;
+      const ek = rec ? null : pfEtfBase(p.t212);
+      const lt = ek ? etfLT(ek.key) : null;
+      if (lt){
+        // decompose the ETF's value into its basket's sector/region weights,
+        // so the bars reflect what's owned THROUGH the fund
+        for (const [s, w] of Object.entries(lt.sec)) bySector[s] = (bySector[s] || 0) + p.valueAcct * w;
+        for (const [r, w] of Object.entries(lt.reg)) byRegion[r] = (byRegion[r] || 0) + p.valueAcct * w;
+        if (typeof lt.combined === 'number'){ wSum += p.valueAcct * lt.combined; wTot += p.valueAcct; }
+        if (!heldEtfs[ek.base]) heldEtfs[ek.base] = { lt, value: 0 };
+        heldEtfs[ek.base].value += p.valueAcct;
+      } else {
+        const sec = rec ? (rec.sector || 'Unknown sector') : 'Not covered here';
+        bySector[sec] = (bySector[sec] || 0) + p.valueAcct;
+        const reg = rec ? (isEuRow(rec) ? 'UK / Europe' : 'US') : 'Other';
+        byRegion[reg] = (byRegion[reg] || 0) + p.valueAcct;
+        if (rec && typeof rec.combinedScore === 'number'){ wSum += p.valueAcct * rec.combinedScore; wTot += p.valueAcct; }
+      }
       const c = p.ccy === 'GBX' ? 'GBP' : (p.ccy || 'Unknown');
       byCcy[c] = (byCcy[c] || 0) + p.valueAcct;
-      if (rec && typeof rec.combinedScore === 'number'){ wSum += p.valueAcct * rec.combinedScore; wTot += p.valueAcct; }
     });
     const share = v => Math.round(100 * v / tot);
     const barBlock = (title, obj, cap) => {
@@ -4059,10 +4133,13 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
       const ws = wSum / wTot;
       const covered = DATA.filter(x => typeof x.combinedScore === 'number');
       const pctl = covered.length ? Math.round(100 * covered.filter(x => x.combinedScore <= ws).length / covered.length) : null;
-      notes.push(`<b>Value-weighted combined score: ${ws.toFixed(1)}</b>${pctl !== null ? ` — around the ${pctl}th percentile of the ${covered.length} covered stocks` : ''} (${Math.round(100 * wTot / tot)}% of your value is in names this dashboard covers).`);
+      notes.push(`<b>Value-weighted combined score: ${ws.toFixed(1)}</b>${pctl !== null ? ` — around the ${pctl}th percentile of the ${covered.length} covered stocks` : ''} (${Math.round(100 * wTot / tot)}% of your value is scoreable, directly or via ETF look-through).`);
     }
     let flagged = false;
-    const top = [...vals].sort((a, b) => b.valueAcct - a.valueAcct)[0];
+    // single-stock concentration: ETF positions are diversified baskets, so
+    // they don't count as "one stock" (sector concentration still sees them
+    // through the decomposition above)
+    const top = [...vals].filter(p => !(!pfMap(p.t212) && pfEtfBase(p.t212))).sort((a, b) => b.valueAcct - a.valueAcct)[0];
     if (top && top.valueAcct / tot > 0.15){
       notes.push(`⚠ <b>${esc2(pfMap(top.t212) || top.t212)}</b> is ${share(top.valueAcct)}% of your portfolio — a lot riding on one stock.`);
       flagged = true;
@@ -4072,7 +4149,16 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
       notes.push(`⚠ <b>${esc2(topSec[0])}</b> is ${share(topSec[1])}% of your value — heavy sector concentration.`);
       flagged = true;
     }
-    if (!flagged) notes.push('No single position over 15% and no sector over 40% of value — reasonably spread out.');
+    if (!flagged) notes.push('No single stock over 15% and no sector over 40% of value — reasonably spread out.');
+    const etfBases = Object.keys(heldEtfs).sort((a, b) => heldEtfs[b].value - heldEtfs[a].value);
+    if (etfBases.length){
+      notes.push('<b style="display:block;margin-top:10px">Your ETFs (look-through)</b>');
+      etfBases.forEach(base => {
+        const { lt, value } = heldEtfs[base];
+        notes.push(`<b>${esc2(base)}</b> — ${esc2(lt.label)}: combined score ${lt.combined !== null ? lt.combined.toFixed(1) : '—'}, value score ${lt.value !== null ? lt.value.toFixed(1) : '—'} (${share(value)}% of your portfolio; cap-weighted over ${lt.n} covered name${lt.n === 1 ? '' : 's'}, ${esc2(lt.cov)}).`);
+      });
+      notes.push('<span style="font-size:11.5px">Broad-market baskets score near the market average by construction — the sector bars above include what you own through these funds.</span>');
+    }
     notes.push('<span style="font-size:11.5px">Shares of converted position value, not advice.</span>');
     document.getElementById('pfProfile').innerHTML = notes.map(n => `<p style="margin:6px 0">${n}</p>`).join('');
     renderPfHistory();
