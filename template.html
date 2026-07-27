@@ -354,6 +354,13 @@
   .pf-bb-track span { display: block; height: 100%; background: var(--accent); border-radius: 5px; }
   .pf-bb-v { flex: 0 0 38px; text-align: right; color: var(--text-primary); font-variant-numeric: tabular-nums; }
   .pf-etf-tag { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: var(--gridline); color: var(--text-secondary); vertical-align: 1px; }
+  /* portfolio hero (2026-07-27): big account value + day move */
+  #pfHero { margin: 4px 0 14px; }
+  .pf-hero-total { font-size: 36px; font-weight: 800; letter-spacing: -.5px; line-height: 1.15; font-variant-numeric: tabular-nums; }
+  @media (max-width: 560px) { .pf-hero-total { font-size: 30px; } }
+  .pf-hero-sub { display: flex; gap: 16px; flex-wrap: wrap; align-items: baseline; font-size: 13.5px; font-weight: 600; margin-top: 4px; }
+  .pf-hero-sub .dim { color: var(--text-secondary); font-weight: 500; }
+  .pf-hero-note { font-size: 11.5px; color: var(--text-muted); margin-top: 4px; }
   /* custom alert rules (2026-07-27) */
   .rule-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 4px; }
   .rule-row input, .rule-row select { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--page); color: var(--text-primary); font: inherit; font-size: 13px; }
@@ -1035,6 +1042,7 @@
           <div class="acct-msg" id="pfMsg"></div>
         </div>
         <div id="pfHoldings" style="display:none">
+          <div id="pfHero" style="display:none"></div>
           <div class="pf-bar">
             <span class="section-sub" id="pfUpdated" style="margin:0;flex:1"></span>
             <button class="refresh-btn" id="pfRefresh">Refresh</button>
@@ -4007,8 +4015,33 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
     renderPortfolioView();
   }
 
+  // ----- portfolio hero (2026-07-27): big account value -----
+  // All three figures are T212's own numbers in the account currency — no
+  // derived estimates here (a look-through day-change estimate was
+  // considered and rejected by the owner: T212 truth only).
+  function renderPfHero(){
+    const el = document.getElementById('pfHero');
+    const d = PF.data;
+    const rows = (d && d.positions) || [];
+    const vals = rows.filter(p => p.valueAcct !== null && p.valueAcct !== undefined);
+    const posTot = vals.reduce((s, p) => s + p.valueAcct, 0);
+    const cash = d.cash || {};
+    const total = (cash.total !== null && cash.total !== undefined) ? cash.total : (vals.length ? posTot : null);
+    if (total === null){ el.style.display = 'none'; return; }
+    el.style.display = '';
+    const ppl = (cash.ppl !== null && cash.ppl !== undefined) ? cash.ppl : null;
+    const plPct = (ppl !== null && cash.invested) ? 100 * ppl / cash.invested : null;
+    el.innerHTML = `
+      <div class="pf-hero-total">${pfMoney(total)}</div>
+      <div class="pf-hero-sub">
+        ${ppl !== null ? `<span class="${ppl >= 0 ? 'pos' : 'neg'}">${(ppl >= 0 ? '+' : '') + pfMoney(ppl)}${plPct !== null ? ` (${plPct >= 0 ? '+' : ''}${plPct.toFixed(1)}%)` : ''} <span class="dim">all-time P/L</span></span>` : ''}
+        ${(cash.free !== null && cash.free !== undefined) ? `<span class="dim">${pfMoney(cash.free)} free cash</span>` : ''}
+      </div>`;
+  }
+
   function renderPfTable(){
     const d = PF.data;
+    renderPfHero();
     const upd = document.getElementById('pfUpdated');
     upd.textContent = d.fetchedAt ? 'Updated ' + new Date(d.fetchedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '';
     const table = document.getElementById('pfTable'), note = document.getElementById('pfNote');
@@ -4073,10 +4106,8 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
     }).join('');
     table.querySelector('tbody').innerHTML = body +
       `<tr class="pf-total"><td>Total</td><td></td><td></td><td></td><td class="num">${anyAcct ? pfMoney(totV) + (totVAll ? '' : '*') : '—'}</td><td class="num ${totP >= 0 ? 'pos' : 'neg'}">${(totP >= 0 ? '+' : '') + pfMoney(totP)}</td></tr>`;
-    const cash = d.cash || {};
-    const cashLine = (cash.total !== null && cash.total !== undefined && cash.free !== null && cash.free !== undefined)
-      ? `Account total ${pfMoney(cash.total)} — positions plus ${pfMoney(cash.free)} free cash. ` : '';
-    note.textContent = cashLine + `${rows.length} position${rows.length === 1 ? '' : 's'}${matched ? `, ${matched} covered here — tap a ticker for its scores` : ''}. Prices are in each instrument's own currency; values and P/L are converted to your account currency${totVAll ? '' : ' (* total excludes positions whose currency could not be converted)'}. Read-only — nothing on this page can trade.`;
+    // (account total + free cash moved to the hero above the table)
+    note.textContent = `${rows.length} position${rows.length === 1 ? '' : 's'}${matched ? `, ${matched} covered here — tap a ticker for its scores` : ''}. Prices are in each instrument's own currency; values and P/L are converted to your account currency${totVAll ? '' : ' (* total excludes positions whose currency could not be converted)'}. Read-only — nothing on this page can trade.`;
     renderPfAnalytics();
   }
 

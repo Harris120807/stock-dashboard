@@ -687,6 +687,11 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   `cov` wording) and NEVER in stock quintiles/watchlists — broad baskets are
   mid by construction. Adding an ETF = one ETF_MAP entry (+ a basket def if
   it's a new index).
+- **Portfolio hero (2026-07-27)**: `#pfHero` atop the Portfolio tab — big
+  account total + all-time P/L (+%) + free cash, ALL Trading 212's own
+  figures (owner explicitly rejected a look-through day-change estimate:
+  T212 truth only, no derived numbers in the hero). The old cash sentence
+  in the footnote was folded into it.
 - **Portfolio analytics (template, client-only)**: `renderPfAnalytics()` in
   the accounts IIFE — allocation bars by sector/region/listing currency
   (converted `valueAcct` shares only), value-weighted combined score + its
