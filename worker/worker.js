@@ -27,10 +27,16 @@
 //                              secret CF_ANALYTICS_TOKEN with Account Analytics:Read)
 //   GET  /admin/security    -> intrusion-monitor status (security_log, canary)
 //   GET  /admin/security-check -> DRY run of the hourly anomaly check
+//   GET  /admin/errors      -> Worker route-error log (24h count + recent rows)
+//   POST /admin/broadcast   -> announcement email to opted-in users
+//                              (two-step: confirm:false = recipient count only)
 // Trading 212 portfolio import (2026-07-26, signed-in only, no-store):
 //   POST /me/t212        -> validate + encrypt-store a READ-ONLY T212 key
-//   POST /me/t212/delete -> disconnect (row + caches wiped)
+//   POST /me/t212/delete -> disconnect (row + caches + value history wiped)
 //   GET  /me/portfolio   -> positions from T212 (KV-cached 60s per user)
+//   GET  /me/portfolio/history -> daily account-value snapshots (20:30 cron)
+// Custom alert rules (2026-07-27, signed-in only, one-shot, digest-evaluated):
+//   GET/POST /me/rules, POST /me/rules/delete, POST /me/rules/rearm
 // Every request logs an anonymous data point (route group + country) to the
 // Analytics Engine dataset `stockdash_traffic` (binding TRAFFIC).
 // Kill-switches: livePrices gates /prices, fullRefresh gates /refresh,
@@ -330,6 +336,46 @@ async function handleAdmin(route, req, env, ctx) {
     return json({ users: rows }, 200, 0);
   }
 
+  if (route === 'admin/errors' && req.method === 'GET') {
+    // Worker route-error log: 24h count + the most recent rows. Rows are our
+    // own exception text only — nothing user-supplied beyond the route name.
+    if (!env.DB) return json({ error: 'accounts not provisioned' }, 503, 0);
+    const now = Math.floor(Date.now() / 1000);
+    let count24h = 0, recent = [];
+    try {
+      count24h = ((await env.DB.prepare('SELECT COUNT(*) AS n FROM error_log WHERE at > ?').bind(now - 86400).first()) || {}).n || 0;
+      recent = (await env.DB.prepare('SELECT at, route, detail FROM error_log ORDER BY id DESC LIMIT 30').all()).results || [];
+    } catch (e) { /* table not provisioned yet */ }
+    return json({ count24h, recent }, 200, 0);
+  }
+
+  if (route === 'admin/broadcast' && req.method === 'POST') {
+    // One-off announcement to opted-in verified users (same audience + same
+    // unsubscribe token as the digests). Two-step: without confirm:true it
+    // only returns the recipient count; with it, it actually sends. Body is
+    // plain text — escaped and line-preserved into the site-styled shell.
+    if (!env.DB || !env.RESEND_API_KEY) return json({ error: 'not configured' }, 503, 0);
+    let body;
+    try { body = await req.json(); } catch (e) { return json({ error: 'bad json' }, 400, 0); }
+    const subject = String(body.subject || '').trim().slice(0, 120);
+    const text = String(body.body || '').trim().slice(0, 5000);
+    const users = (await env.DB.prepare(
+      "SELECT email, unsub_token FROM users WHERE alerts = 1 AND verified = 1 AND email NOT LIKE 'canary+%@valuetally.com'"
+    ).all()).results || [];
+    if (!body.confirm) return json({ recipients: users.length, note: 'preview only — send again with confirm:true to actually email' }, 200, 0);
+    if (!subject || !text) return json({ error: 'subject and body are both required' }, 400, 0);
+    const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    let sent = 0;
+    for (const u of users) {
+      const html = mailWrap(`<p style="margin:0 0 10px;font-size:17px;font-weight:700">${esc(subject)}</p>
+        <p style="margin:0;white-space:pre-wrap">${esc(text)}</p>
+        <p style="font-size:12px;color:#7d8595;margin:16px 0 0"><a href="https://api.valuetally.com/alerts/unsubscribe?u=${u.unsub_token}" style="color:#7d8595">Unsubscribe from these emails</a>.</p>`);
+      try { await sendMail(env, u.email, subject, html); sent++; } catch (e) { /* next recipient */ }
+    }
+    secLog(env, ctx, 'broadcast', 'sent ' + sent + '/' + users.length, req);
+    return json({ ok: true, sent, recipients: users.length }, 200, 0);
+  }
+
   if (route === 'admin/deadman-check' && req.method === 'GET') {
     // ALWAYS a dry run — reports what the dead-man cron would do without ever
     // pinging the owner's ntfy topic (no test messages there, standing rule)
@@ -440,6 +486,9 @@ async function handleRefresh(env, ctx) {
 const SESSION_DAYS = 90;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const TICK_RE = /^[A-Z0-9.\-]{1,12}$/;
+// custom alert-rule kinds (2026-07-27): _above fires at value >= threshold,
+// _below at value <= threshold — evaluated once daily by the digest cron
+const RULE_KINDS = new Set(['price_above', 'price_below', 'score_above', 'score_below', 'rsi_above', 'rsi_below']);
 
 const hex = b => [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
 const randHex = n => hex(crypto.getRandomValues(new Uint8Array(n)));
@@ -748,6 +797,8 @@ async function handleAuth(route, req, env, ctx) {
       env.DB.prepare('DELETE FROM tokens WHERE user_id = ?').bind(u.id),
       env.DB.prepare('DELETE FROM watchlists WHERE user_id = ?').bind(u.id),
       env.DB.prepare('DELETE FROM broker_keys WHERE user_id = ?').bind(u.id),
+      env.DB.prepare('DELETE FROM portfolio_history WHERE user_id = ?').bind(u.id),
+      env.DB.prepare('DELETE FROM alert_rules WHERE user_id = ?').bind(u.id),
       env.DB.prepare('DELETE FROM users WHERE id = ?').bind(u.id),
     ]);
     try {
@@ -856,11 +907,75 @@ async function handleAuth(route, req, env, ctx) {
     const u = await sessionUser(req, env, ctx);
     if (!u) return json({ error: 'not signed in' }, 401, 0);
     await env.DB.prepare('DELETE FROM broker_keys WHERE user_id = ?').bind(u.id).run();
+    // disconnect wipes the value history too — privacy-first: no broker key,
+    // no stored broker-derived data
+    try { await env.DB.prepare('DELETE FROM portfolio_history WHERE user_id = ?').bind(u.id).run(); } catch (e) { /* table optional */ }
     try {
       await env.CONFIG?.delete('t212:' + u.id);
       await env.CONFIG?.delete('t212cur:' + u.id);
     } catch (e) { /* cache only */ }
     secLog(env, ctx, 't212_delete', 'me/t212/delete', req);
+    return json({ ok: true }, 200, 0);
+  }
+
+  if (route === 'me/portfolio/history' && req.method === 'GET') {
+    // daily account-value snapshots (written by the 20:30 cron) — the user's
+    // own performance line on the Portfolio tab. d = UTC daynum.
+    const u = await sessionUser(req, env, ctx);
+    if (!u) return json({ error: 'not signed in' }, 401, 0);
+    let days = [];
+    try {
+      days = (await env.DB.prepare('SELECT d, total, invested, ppl FROM portfolio_history WHERE user_id = ? ORDER BY d').bind(u.id).all()).results || [];
+    } catch (e) { /* table not provisioned yet */ }
+    return json({ days }, 200, 0);
+  }
+
+  // ---- custom per-stock alert rules (2026-07-27) ----
+  // One-shot rules evaluated by the daily digest cron against last-data.json:
+  // when a rule fires it's stamped triggered_at and won't fire again until the
+  // user re-arms it. Price thresholds are in the stock's LISTING unit (pence
+  // for London) — the same numbers the site displays. Emails still require
+  // the account-level alerts opt-in (same flag as the watchlist digest).
+  if (route === 'me/rules' && req.method === 'GET') {
+    const u = await sessionUser(req, env, ctx);
+    if (!u) return json({ error: 'not signed in' }, 401, 0);
+    let rules = [];
+    try {
+      rules = (await env.DB.prepare('SELECT id, ticker, kind, threshold, triggered_at FROM alert_rules WHERE user_id = ? ORDER BY id DESC').bind(u.id).all()).results || [];
+    } catch (e) { /* table not provisioned yet */ }
+    return json({ rules }, 200, 0);
+  }
+
+  if (route === 'me/rules' && req.method === 'POST') {
+    const u = await sessionUser(req, env, ctx);
+    if (!u) return json({ error: 'not signed in' }, 401, 0);
+    const t = String((body && body.ticker) || '').toUpperCase();
+    const kind = String((body && body.kind) || '');
+    const thr = Number(body && body.threshold);
+    if (!TICK_RE.test(t) || !RULE_KINDS.has(kind) || !isFinite(thr)) return json({ error: 'bad rule' }, 400, 0);
+    const n = ((await env.DB.prepare('SELECT COUNT(*) AS n FROM alert_rules WHERE user_id = ?').bind(u.id).first()) || {}).n || 0;
+    if (n >= 20) return json({ error: 'rule limit reached (20) — delete one first' }, 400, 0);
+    await env.DB.prepare('INSERT INTO alert_rules (user_id, ticker, kind, threshold, created_at) VALUES (?, ?, ?, ?, ?)')
+      .bind(u.id, t, kind, thr, Math.floor(Date.now() / 1000)).run();
+    const rules = (await env.DB.prepare('SELECT id, ticker, kind, threshold, triggered_at FROM alert_rules WHERE user_id = ? ORDER BY id DESC').bind(u.id).all()).results || [];
+    return json({ ok: true, rules }, 200, 0);
+  }
+
+  if (route === 'me/rules/delete' && req.method === 'POST') {
+    const u = await sessionUser(req, env, ctx);
+    if (!u) return json({ error: 'not signed in' }, 401, 0);
+    const id = Number(body && body.id);
+    if (!Number.isInteger(id)) return json({ error: 'bad id' }, 400, 0);
+    await env.DB.prepare('DELETE FROM alert_rules WHERE id = ? AND user_id = ?').bind(id, u.id).run();
+    return json({ ok: true }, 200, 0);
+  }
+
+  if (route === 'me/rules/rearm' && req.method === 'POST') {
+    const u = await sessionUser(req, env, ctx);
+    if (!u) return json({ error: 'not signed in' }, 401, 0);
+    const id = Number(body && body.id);
+    if (!Number.isInteger(id)) return json({ error: 'bad id' }, 400, 0);
+    await env.DB.prepare('UPDATE alert_rules SET triggered_at = NULL WHERE id = ? AND user_id = ?').bind(id, u.id).run();
     return json({ ok: true }, 200, 0);
   }
 
@@ -925,22 +1040,37 @@ async function handleAuth(route, req, env, ctx) {
 }
 
 // ---------- daily watchlist digest (Worker cron, weekdays 20:30 UTC) ----------
-// One email per opted-in verified user, only when a starred stock did something
-// noteworthy today: |price move| >= 5% or |combined-score change vs yesterday|
-// >= 0.05. Data comes from the pipeline's last-data.json (public, no vendor
-// re-serving concern: the digest goes to the user, not an API).
+// One email per opted-in verified user when a starred stock did something
+// noteworthy today (|price move| >= 5% or |score change| >= 15) OR one of
+// their custom alert rules fired. Data comes from the pipeline's
+// last-data.json (public, no vendor re-serving concern: the digest goes to
+// the user, not an API). Fired rules are stamped triggered_at only after the
+// email actually sends, so a mail failure doesn't eat the alert.
 async function sendDigests(env, ctx) {
   if (!env.DB || !env.RESEND_API_KEY) return;
   const r = await fetch(STATE_RAW + 'last-data.json');
   if (!r.ok) return;
   const by = {};
   for (const d of await r.json()) by[d.ticker] = d;
+  // LEFT JOIN: a user with custom rules but no watchlist still gets alerts
   const users = (await env.DB.prepare(
-    'SELECT u.id, u.email, u.unsub_token, w.tickers FROM users u JOIN watchlists w ON w.user_id = u.id WHERE u.alerts = 1 AND u.verified = 1'
+    'SELECT u.id, u.email, u.unsub_token, w.tickers FROM users u LEFT JOIN watchlists w ON w.user_id = u.id WHERE u.alerts = 1 AND u.verified = 1'
   ).all()).results || [];
+  let rulesBy = {};
+  try {
+    for (const rl of (await env.DB.prepare('SELECT id, user_id, ticker, kind, threshold FROM alert_rules WHERE triggered_at IS NULL').all()).results || []) {
+      (rulesBy[rl.user_id] = rulesBy[rl.user_id] || []).push(rl);
+    }
+  } catch (e) { /* rules table not provisioned yet */ }
+  const ruleVal = (d, kind) => kind.startsWith('price') ? d.price
+    : kind.startsWith('score') ? d.combinedScore
+    : (d.rsi != null ? d.rsi : (d.technicals && d.technicals.rsi14));
+  const RULE_TEXT = { price_above: 'price rose to', price_below: 'price fell to',
+    score_above: 'combined score rose above', score_below: 'combined score fell below',
+    rsi_above: 'RSI rose above', rsi_below: 'RSI fell below' };
   for (const u of users) {
-    let list;
-    try { list = JSON.parse(u.tickers); } catch (e) { continue; }
+    let list = [];
+    try { list = JSON.parse(u.tickers || '[]'); } catch (e) { /* no watchlist */ }
     const events = [];
     for (const t of list) {
       const d = by[t];
@@ -954,16 +1084,63 @@ async function sendDigests(env, ctx) {
       if (sd !== null && Math.abs(sd) >= 15) notes.push('score ' + (sd > 0 ? 'up' : 'down') + ' ' + Math.abs(sd).toFixed(1) + ' vs yesterday');
       if (notes.length) events.push({ d, notes });
     }
-    if (!events.length) continue;
+    // custom rules: one-shot threshold crossings on today's snapshot
+    const fired = [];
+    for (const rl of rulesBy[u.id] || []) {
+      const d = by[rl.ticker];
+      if (!d) continue;
+      const v = ruleVal(d, rl.kind);
+      if (typeof v !== 'number') continue;
+      if (rl.kind.endsWith('_above') ? v >= rl.threshold : v <= rl.threshold) fired.push({ rl, d, v });
+    }
+    if (!events.length && !fired.length) continue;
     const rows = events.map(({ d, notes }) => `
       <tr><td style="padding:9px 0;border-bottom:1px solid #eef1f6"><b>${d.ticker}</b> <span style="color:#7d8595">${(d.name || '').slice(0, 28)}</span><br>
       <span style="font-size:13px;color:#4c5566">${notes.join(' · ')}</span></td>
       <td style="padding:9px 0;border-bottom:1px solid #eef1f6;text-align:right;white-space:nowrap">${d.price != null ? d.price : ''} <span style="color:${(d.dayChange || 0) >= 0 ? '#0ca30c' : '#d03b3b'}">${d.dayChange != null ? (d.dayChange >= 0 ? '+' : '') + d.dayChange.toFixed(1) + '%' : ''}</span></td></tr>`).join('');
-    const html = mailWrap(`<p style="margin:0 0 4px;font-size:17px;font-weight:700">Your watchlist today</p>
-      <p style="margin:6px 0 10px;color:#4c5566;font-size:13.5px">Stocks you follow that moved meaningfully — full picture on <a href="${SITE}#watchlist" style="color:#1e4f91">your watchlist</a>.</p>
-      <table style="width:100%;border-collapse:collapse;font-size:14.5px">${rows}</table>
+    const fRows = fired.map(({ rl, d, v }) => `
+      <tr><td style="padding:9px 0;border-bottom:1px solid #eef1f6"><b>${d.ticker}</b> <span style="color:#7d8595">${(d.name || '').slice(0, 28)}</span><br>
+      <span style="font-size:13px;color:#4c5566">your alert: ${RULE_TEXT[rl.kind]} ${rl.threshold} (now ${typeof v === 'number' ? Math.round(v * 100) / 100 : v})</span></td>
+      <td style="padding:9px 0;border-bottom:1px solid #eef1f6;text-align:right;white-space:nowrap">${d.price != null ? d.price : ''}</td></tr>`).join('');
+    const html = mailWrap(`<p style="margin:0 0 4px;font-size:17px;font-weight:700">${events.length ? 'Your watchlist today' : 'Your alerts fired'}</p>
+      <p style="margin:6px 0 10px;color:#4c5566;font-size:13.5px">${events.length ? 'Stocks you follow that moved meaningfully' : 'Alert rules you set were hit today'} — full picture on <a href="${SITE}#watchlist" style="color:#1e4f91">your watchlist</a>.</p>
+      ${rows ? `<table style="width:100%;border-collapse:collapse;font-size:14.5px">${rows}</table>` : ''}
+      ${fRows ? `<p style="margin:${rows ? '14px' : '0'} 0 4px;font-size:13px;font-weight:700;color:#1c2534">Your alerts</p>
+      <table style="width:100%;border-collapse:collapse;font-size:14.5px">${fRows}</table>
+      <p style="font-size:12px;color:#7d8595;margin:8px 0 0">Fired alerts pause until you re-arm them on the site.</p>` : ''}
       <p style="font-size:12px;color:#7d8595;margin:14px 0 0">Mechanical screen, not investment advice. <a href="https://api.valuetally.com/alerts/unsubscribe?u=${u.unsub_token}" style="color:#7d8595">Unsubscribe from these alerts</a>.</p>`);
-    try { await sendMail(env, u.email, 'ValueTally watchlist: ' + events.map(e => e.d.ticker).slice(0, 4).join(', ') + (events.length > 4 ? '…' : ''), html); } catch (e) { /* next user */ }
+    const subjTicks = [...new Set([...events.map(e => e.d.ticker), ...fired.map(f => f.d.ticker)])];
+    try {
+      await sendMail(env, u.email, 'ValueTally ' + (events.length ? 'watchlist' : 'alert') + ': ' + subjTicks.slice(0, 4).join(', ') + (subjTicks.length > 4 ? '…' : ''), html);
+      const now = Math.floor(Date.now() / 1000);
+      for (const f of fired) {
+        try { await env.DB.prepare('UPDATE alert_rules SET triggered_at = ? WHERE id = ?').bind(now, f.rl.id).run(); } catch (e) { /* re-fires tomorrow */ }
+      }
+    } catch (e) { /* next user */ }
+  }
+}
+
+// ---------- daily portfolio value snapshot (2026-07-27) ----------
+// One row per connected T212 user per day: account total/invested/P&L from
+// the cheap /equity/account/cash call (positions aren't needed for a value
+// history). Runs on the 20:30 digest cron (after US close); re-runs the same
+// day overwrite the row, so the last run stands. Feeds /me/portfolio/history.
+async function snapshotPortfolios(env, ctx) {
+  if (!env.DB || !env.VAULT_KEY) return;
+  const dn = Math.floor(Date.now() / 86400000);
+  let rows = [];
+  try { rows = (await env.DB.prepare('SELECT user_id, enc, env FROM broker_keys').all()).results || []; } catch (e) { return; }
+  for (const row of rows) {
+    try {
+      const cred = await vaultDecrypt(env, row.enc);
+      const r = await t212Fetch(row.env, '/equity/account/cash', cred);
+      if (!r.ok) continue; // revoked key etc. — the portfolio route surfaces that
+      const c = await r.json();
+      if (typeof c.total !== 'number') continue;
+      await env.DB.prepare(
+        'INSERT INTO portfolio_history (user_id, d, total, invested, ppl) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id, d) DO UPDATE SET total = ?, invested = ?, ppl = ?'
+      ).bind(row.user_id, dn, c.total, c.invested ?? null, c.ppl ?? null, c.total, c.invested ?? null, c.ppl ?? null).run();
+    } catch (e) { /* next user */ }
   }
 }
 
@@ -1021,6 +1198,20 @@ function secLog(env, ctx, kind, detail, req) {
     if (ctx) ctx.waitUntil(p);
     return p;
   } catch (e) { /* security logging must never break serving */ }
+}
+
+// Best-effort route-error log (D1 error_log, 2026-07-27): our own exceptions,
+// so a silently broken route shows up as an "Errors (24h)" count on the admin
+// Status card instead of waiting for user complaints. detail = our error text
+// only — never request bodies, tokens, or user data.
+function errLog(env, ctx, route, e) {
+  try {
+    if (!env.DB) return;
+    const p = env.DB.prepare('INSERT INTO error_log (at, route, detail) VALUES (?, ?, ?)')
+      .bind(Math.floor(Date.now() / 1000), String(route || '').slice(0, 60), String((e && e.message) || e || '').slice(0, 140))
+      .run().catch(() => {});
+    if (ctx) ctx.waitUntil(p);
+  } catch (e2) { /* error logging must never break serving */ }
 }
 
 // The canary user's id lives in KV ('canaryUserId'). The deploy token can't
@@ -1156,7 +1347,10 @@ export default {
       ctx.waitUntil(deadmanCheck(env, false));
       ctx.waitUntil(securityCheck(env, false));   // hourly accounts-DB anomaly check
     }
-    else ctx.waitUntil(sendDigests(env, ctx)); // 30 20 * * 1-5 daily digest
+    else { // 30 20 * * 1-5: portfolio snapshots first (cheap), then the digest
+      ctx.waitUntil(snapshotPortfolios(env, ctx));
+      ctx.waitUntil(sendDigests(env, ctx));
+    }
   },
   async fetch(req, env, ctx) {
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
@@ -1169,27 +1363,27 @@ export default {
     } catch (e) { /* analytics must never break serving */ }
     if (route.startsWith('admin')) {
       try { return await handleAdmin(route, req, env, ctx); }
-      catch (e) { return json({ error: 'temporarily unavailable' }, 503, 0); }
+      catch (e) { errLog(env, ctx, route, e); return json({ error: 'temporarily unavailable' }, 503, 0); }
     }
     if (route.startsWith('auth/') || route === 'me' || route.startsWith('me/') || route.startsWith('alerts/')) {
       try { return await handleAuth(route, req, env, ctx); }
-      catch (e) { return json({ error: 'temporarily unavailable' }, 503, 0); }
+      catch (e) { errLog(env, ctx, route, e); return json({ error: 'temporarily unavailable' }, 503, 0); }
     }
     if (route === 'refresh' && req.method === 'POST') {
       const flags = await getFlags(env);
       if (!flags.fullRefresh) return json({ error: 'full refresh is currently disabled by the owner', disabled: true }, 403, 0);
       try { return await handleRefresh(env, ctx); }
-      catch (e) { return json({ error: 'temporarily unavailable' }, 503, 0); }
+      catch (e) { errLog(env, ctx, route, e); return json({ error: 'temporarily unavailable' }, 503, 0); }
     }
     if (route === 'prices' && req.method === 'GET') {
       const flags = await getFlags(env);
       if (!flags.livePrices) return json({ disabled: true }, 200, 60);
       try { return await handlePrices(ctx); }
-      catch (e) { return json({ error: 'temporarily unavailable' }, 503, 10); }
+      catch (e) { errLog(env, ctx, route, e); return json({ error: 'temporarily unavailable' }, 503, 10); }
     }
     if (req.method === 'GET' && (route === 'api' || route.startsWith('api/'))) {
       try { return await handleApi(route, ctx); }
-      catch (e) { return json({ error: 'temporarily unavailable' }, 503, 30); }
+      catch (e) { errLog(env, ctx, route, e); return json({ error: 'temporarily unavailable' }, 503, 30); }
     }
     if (req.method !== 'GET' || !TTL[route]) {
       return new Response(JSON.stringify({ error: 'not found' }), { status: 404, headers: { 'Content-Type': 'application/json', ...CORS } });

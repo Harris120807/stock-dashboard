@@ -106,6 +106,7 @@ a{color:var(--accent)}
         <div class="kpi"><b id="usWl">—</b><span>active watchlists</span></div>
       </div>
       <div class="hint" id="dqLine">Data health: checking…</div>
+      <div class="hint" id="errLine">Worker errors: checking…</div>
       <div class="hint">Pipeline runs and logs: <a href="https://github.com/Harris120807/stock-dashboard/actions" target="_blank" rel="noopener">GitHub Actions</a></div>
     </div>
 
@@ -158,6 +159,19 @@ a{color:var(--accent)}
       <div class="hint">Tripwires on the accounts database: failed key/login attempts are logged at the edge, and a decoy
       "canary" account — whose credentials exist nowhere — pushes a phone alert the moment anything touches it.
       An hourly check also watches for mass deletions and brute-force bursts.</div>
+    </div>
+
+    <div class="card">
+      <h2>Email broadcast</h2>
+      <input id="bcSubject" type="text" placeholder="Subject" style="width:100%;box-sizing:border-box;margin-bottom:8px">
+      <textarea id="bcBody" placeholder="Plain-text message — line breaks are kept."></textarea>
+      <div class="row" style="margin-top:10px">
+        <button id="bcBtn">Send to opted-in users</button>
+      </div>
+      <div class="msg" id="bcMsg"></div>
+      <div class="hint">One-off announcement to every verified user with alerts switched on. Two-step: the button first
+      shows the recipient count, then a confirm actually sends. Uses the site-styled email shell with the standard
+      unsubscribe link.</div>
     </div>
     </div>
     </div>
@@ -253,7 +267,44 @@ $('loginBtn').onclick = () => { KEY = $('keyIn').value.trim(); localStorage.setI
 $('keyIn').addEventListener('keydown', e => { if (e.key === 'Enter') $('loginBtn').click(); });
 $('logoutBtn').onclick = () => { localStorage.removeItem('vt-admin-key'); location.reload(); };
 
-function loadAll() { loadStatus(); loadConfig(); loadStats(); loadRequests(); loadUserStats(); loadDataQuality(); loadSecurity(); }
+function loadAll() { loadStatus(); loadConfig(); loadStats(); loadRequests(); loadUserStats(); loadDataQuality(); loadSecurity(); loadErrors(); }
+
+async function loadErrors() {
+  const el = $('errLine');
+  try {
+    const d = await authFetch('/admin/errors').then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    if (!d.count24h) { el.textContent = '✓ Worker errors: none in the last 24h.'; return; }
+    const last = (d.recent || [])[0];
+    el.textContent = '⚠ Worker errors: ' + d.count24h + ' in the last 24h' + (last
+      ? ' — latest: ' + last.route + ' (' + (last.detail || 'no detail') + ', '
+        + new Date((last.at || 0) * 1000).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + ')'
+      : '') + '.';
+  } catch (e) { el.textContent = 'Worker errors: could not load.'; }
+}
+
+$('bcBtn').onclick = async () => {
+  const subject = $('bcSubject').value.trim(), body = $('bcBody').value.trim();
+  const msg = $('bcMsg');
+  if (!subject || !body) { msg.textContent = 'Subject and message are both required.'; msg.className = 'msg err'; return; }
+  msg.textContent = 'Checking recipients…'; msg.className = 'msg';
+  try {
+    const post = payload => authFetch('/admin/broadcast', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    }).then(r => r.json());
+    const prev = await post({ subject, body });
+    if (typeof prev.recipients !== 'number') throw new Error(prev.error || 'preview failed');
+    if (!prev.recipients) { msg.textContent = 'No opted-in recipients to send to.'; return; }
+    if (!confirm('Send "' + subject + '" to ' + prev.recipients + ' opted-in user' + (prev.recipients === 1 ? '' : 's') + '? This emails real people.')) {
+      msg.textContent = 'Not sent.'; return;
+    }
+    msg.textContent = 'Sending…';
+    const res = await post({ subject, body, confirm: true });
+    if (!res.ok) throw new Error(res.error || 'send failed');
+    msg.textContent = 'Sent to ' + res.sent + ' of ' + res.recipients + ' recipient' + (res.recipients === 1 ? '' : 's') + '.';
+    msg.className = 'msg ok';
+    $('bcSubject').value = ''; $('bcBody').value = '';
+  } catch (e) { msg.textContent = 'Broadcast failed: ' + e.message; msg.className = 'msg err'; }
+};
 
 async function loadSecurity() {
   try {

@@ -54,3 +54,32 @@ CREATE TABLE IF NOT EXISTS broker_keys (
   env TEXT NOT NULL DEFAULT 'live',
   created_at INTEGER
 );
+-- daily portfolio value snapshots (2026-07-27): one row per connected T212
+-- user per UTC day, written by the 20:30 Worker cron from /equity/account/cash;
+-- wiped on broker disconnect and on account deletion
+CREATE TABLE IF NOT EXISTS portfolio_history (
+  user_id INTEGER NOT NULL,
+  d INTEGER NOT NULL,            -- UTC daynum (unix ms / 86400000)
+  total REAL, invested REAL, ppl REAL,
+  PRIMARY KEY (user_id, d)
+);
+-- custom per-stock alert rules (2026-07-27): one-shot — the digest cron
+-- stamps triggered_at when a rule fires; the UI can re-arm (NULL it)
+CREATE TABLE IF NOT EXISTS alert_rules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  ticker TEXT NOT NULL,
+  kind TEXT NOT NULL,            -- price_above/price_below/score_above/score_below/rsi_above/rsi_below
+  threshold REAL,
+  created_at INTEGER NOT NULL,
+  triggered_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_rules_user ON alert_rules(user_id);
+-- Worker route-error log (2026-07-27): our own exception text per route,
+-- best-effort, surfaced as "Errors (24h)" on the admin Status card
+CREATE TABLE IF NOT EXISTS error_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at INTEGER NOT NULL,           -- epoch seconds
+  route TEXT,
+  detail TEXT
+);

@@ -343,6 +343,21 @@
   .pf-expl b { color: var(--text-primary); }
   .pf-key-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 2px; max-width: 560px; }
   .pf-key-row input { flex: 1; min-width: 220px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--page); color: var(--text-primary); font: inherit; font-size: 13.5px; }
+  /* portfolio analytics (2026-07-27) */
+  .pf-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  @media (max-width: 760px) { .pf-cols { grid-template-columns: 1fr; } }
+  .pf-bb { margin-bottom: 12px; }
+  .pf-bb-t { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-secondary); margin: 6px 0 4px; }
+  .pf-bb-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; font-size: 12.5px; }
+  .pf-bb-l { flex: 0 0 118px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pf-bb-track { flex: 1; height: 9px; border-radius: 5px; background: var(--gridline); overflow: hidden; }
+  .pf-bb-track span { display: block; height: 100%; background: var(--accent); border-radius: 5px; }
+  .pf-bb-v { flex: 0 0 38px; text-align: right; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+  /* custom alert rules (2026-07-27) */
+  .rule-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 4px; }
+  .rule-row input, .rule-row select { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--page); color: var(--text-primary); font: inherit; font-size: 13px; }
+  .rule-row #ruleTicker { width: 150px; text-transform: uppercase; }
+  .rule-row #ruleThr { width: 100px; }
   .detail-name { font-size: 14px; color: var(--text-secondary); }
   .detail-sector { display:flex; align-items:center; gap:6px; font-size: 12px; color: var(--text-muted); margin-top: 4px; }
   .detail-close {
@@ -824,6 +839,7 @@
         <div class="chip" id="colModeChip" title="Toggle a slimmed-down set of columns">Compact</div>
         <div class="chip" id="colPickChip" title="Choose exactly which columns to show">Columns</div>
         <div class="chip" id="screenChip" title="Screen by sector, score, P/E, dividends, region">Filters</div>
+        <div class="chip" id="csvChip" title="Download the rows and columns currently shown as a CSV file">Export CSV</div>
         <div class="spacer"></div>
         <div class="rowcount" id="rowcount"></div>
       </div>
@@ -832,10 +848,10 @@
         <select id="scSector" aria-label="Sector"><option value="">All sectors</option></select>
         <select id="scScore" aria-label="Minimum combined score">
           <option value="">Any combined score</option>
-          <option value="1.2">Combined ≥ 1.2</option>
-          <option value="1.1">Combined ≥ 1.1</option>
-          <option value="1.0">Combined ≥ 1.0</option>
-          <option value="0.9">Combined ≥ 0.9</option>
+          <option value="70">Combined ≥ 70</option>
+          <option value="60">Combined ≥ 60</option>
+          <option value="50">Combined ≥ 50</option>
+          <option value="40">Combined ≥ 40</option>
         </select>
         <select id="scPe" aria-label="Maximum P/E">
           <option value="">Any P/E</option>
@@ -854,6 +870,32 @@
           <option value="">All regions</option>
           <option value="us">US listings</option>
           <option value="eu">UK / European listings</option>
+        </select>
+        <select id="scRsi" aria-label="RSI zone">
+          <option value="">RSI: any</option>
+          <option value="os">Oversold (RSI &lt; 30)</option>
+          <option value="mid">Neutral (RSI 30–70)</option>
+          <option value="ob">Overbought (RSI &gt; 70)</option>
+        </select>
+        <select id="scTrend" aria-label="Trend vs 200-day average">
+          <option value="">Trend: any</option>
+          <option value="above">Above 200-day avg</option>
+          <option value="below">Below 200-day avg</option>
+        </select>
+        <select id="scQuintile" aria-label="Score quintile">
+          <option value="">Any quintile</option>
+          <option value="5">Q5 (top fifth)</option>
+          <option value="4">Q4</option>
+          <option value="3">Q3</option>
+          <option value="2">Q2</option>
+          <option value="1">Q1 (bottom fifth)</option>
+        </select>
+        <select id="scMcap" aria-label="Market cap">
+          <option value="">Any size</option>
+          <option value="mega">Mega (≥ $200B)</option>
+          <option value="xl">$50–200B</option>
+          <option value="l">$10–50B</option>
+          <option value="s">Under $10B</option>
         </select>
         <span class="spacer"></span>
         <select id="scSaved" aria-label="Saved screens"><option value="">Saved screens…</option></select>
@@ -941,6 +983,29 @@
         <div class="section-sub">The screen's current mechanical top/bottom 3 by combined score — full context on the Overview page. Not advice.</div>
         <div id="wlSystem" style="display:flex;gap:8px;flex-wrap:wrap;padding:4px 0"></div>
       </div>
+      <div class="card" id="wlAlertsCard" style="display:none">
+        <div class="section-title">My alerts</div>
+        <div class="section-sub">Email me when a stock crosses a line I set — checked once each weekday evening. An alert fires
+        once, then waits until you re-arm it here. Price thresholds are in the price shown on the site (London stocks are in
+        pence). Sending needs email alerts switched on under Account.</div>
+        <div class="rule-row">
+          <input id="ruleTicker" placeholder="Ticker — e.g. AAPL" autocomplete="off" spellcheck="false">
+          <select id="ruleKind">
+            <option value="price_below">price falls to / below</option>
+            <option value="price_above">price rises to / above</option>
+            <option value="score_above">combined score ≥</option>
+            <option value="score_below">combined score ≤</option>
+            <option value="rsi_below">RSI ≤</option>
+            <option value="rsi_above">RSI ≥</option>
+          </select>
+          <input id="ruleThr" type="number" step="any" placeholder="Value" inputmode="decimal">
+          <button class="refresh-btn" id="ruleAddBtn">Add alert</button>
+        </div>
+        <div class="acct-msg" id="ruleMsg"></div>
+        <div style="overflow-x:auto"><table id="ruleTable" style="width:100%;display:none">
+          <thead><tr><th style="text-align:left">Stock</th><th style="text-align:left">Alert when</th><th style="text-align:left">Status</th><th></th></tr></thead>
+          <tbody></tbody></table></div>
+      </div>
     </main>
 
     <main class="view" id="view-portfolio">
@@ -976,6 +1041,20 @@
           </div>
           <div style="overflow-x:auto"><table id="pfTable" style="width:100%"><thead></thead><tbody></tbody></table></div>
           <div class="section-sub" id="pfNote" style="margin-top:8px"></div>
+          <div id="pfAnalytics" style="display:none">
+            <div class="pf-cols">
+              <div>
+                <div class="section-title" style="margin-top:20px">Allocation</div>
+                <div id="pfAlloc"></div>
+              </div>
+              <div>
+                <div class="section-title" style="margin-top:20px">Portfolio profile</div>
+                <div id="pfProfile" class="section-sub" style="margin:0"></div>
+              </div>
+            </div>
+            <div class="section-title" style="margin-top:20px">Value over time</div>
+            <div id="pfHistWrap"></div>
+          </div>
         </div>
       </div>
     </main>
@@ -1012,7 +1091,7 @@
         <p><b>Absolute Score (0–100):</b> a complementary rating that does <b>not</b> depend on the peer set — each stock is judged against a <b>frozen snapshot of the wider US market</b> (a top-500 cross-section, rebuilt roughly yearly): valuation multiples vs the whole market's distribution (40%), business quality — margins, returns and leverage — vs its <b>own sector's</b> norms (30%), and the analyst view — consensus target upside and buy-recommendation share (30%). Bands: Strong ≥ 70 · Solid ≥ 55 · Mixed ≥ 40 · Stretched ≥ 25 · Weak below. A stock can be cheap relative to peers yet score poorly here (or vice versa) — the two views together are the point. In short: <b>the Value and Combined Scores grade on the curve; the Absolute Score grades against frozen market norms.</b></p>
         <h3>Where the data comes from</h3>
         <p>Prices, fundamentals and analyst data come from <b>Finnhub and Yahoo Finance</b>, refreshed roughly hourly on weekday market hours. Numbers can be delayed, stale over weekends, or occasionally wrong at the source; market caps, prices and multiples reflect the fetch time and drift intraday. Analyst consensus price targets are refreshed daily. Each stock's detail card shows its data freshness. European stocks are shown in their home-exchange currency — London prices are in <b>pence</b>.</p>
-        <p><b>Accounts &amp; privacy.</b> Browsing needs no account; a free account is required only for the personal watchlist (so it can follow you across devices). If you create one, we store your email address and a secure hash of your password (never the password itself), used only to sign you in and keep your watchlist. No tracking, no selling data, no marketing email. If you connect a broker API key on the Portfolio tab (Trading 212), use a <b>read-only</b> key: it is stored encrypted, used only to read your positions when you open that tab, never shared, and disconnecting deletes it immediately. Delete your account and all its data — including any stored broker key — any time from the account menu.</p>
+        <p><b>Accounts &amp; privacy.</b> Browsing needs no account; a free account is required only for the personal watchlist and alerts (so they can follow you across devices). If you create one, we store your email address, a secure hash of your password (never the password itself), your watchlist, and any alert rules you set — used only to sign you in and send the alerts you asked for. No tracking, no selling data, no marketing email beyond what you opt into. If you connect a broker API key on the Portfolio tab (Trading 212), use a <b>read-only</b> key: it is stored encrypted, used only to read your positions when you open that tab, never shared, and while connected one account-total figure is saved per weekday to draw your value-over-time line. Disconnecting deletes the key and that history immediately. Delete your account and all its data — key, history, rules, watchlist — any time from the account menu.</p>
         <h3>What's covered — and what isn't</h3>
         <p>A curated, growing pool of the <b>largest US and UK/European companies</b>: each week any new entrants to the top market-cap ranks are added, and once a stock is covered it stays covered. If a stock isn't here, it hasn't reached those ranks yet (or it's on our exclusion rules — e.g. secondary share lines). You can suggest additions on the Requests page.</p>
         <h3>For developers: free scores API</h3>
@@ -1911,7 +1990,7 @@ function positionBadge(pos){
 }
 
 // ---- table screener (2026-07-25): sector / score / P/E / dividend / region ----
-const SCREEN = { sector: '', minScore: null, maxPe: null, minDiv: null, region: '' };
+const SCREEN = { sector: '', minScore: null, maxPe: null, minDiv: null, region: '', rsi: '', trend: '', quintile: '', mcap: '' };
 // European rows are the native listings (dotted symbols) or non-USD currencies;
 // ARM/SPOT trade as plain US lines and deliberately count as US here.
 const isEuRow = d => d.ticker.includes('.') || (d.currency && d.currency !== 'USD');
@@ -1922,10 +2001,32 @@ function screenPass(d){
   if (SCREEN.minDiv !== null && !(typeof d.divYield === 'number' && d.divYield >= SCREEN.minDiv)) return false;
   if (SCREEN.region === 'us' && isEuRow(d)) return false;
   if (SCREEN.region === 'eu' && !isEuRow(d)) return false;
+  if (SCREEN.rsi){
+    if (typeof d.rsi !== 'number') return false;
+    if (SCREEN.rsi === 'os' && !(d.rsi < 30)) return false;
+    if (SCREEN.rsi === 'ob' && !(d.rsi > 70)) return false;
+    if (SCREEN.rsi === 'mid' && !(d.rsi >= 30 && d.rsi <= 70)) return false;
+  }
+  if (SCREEN.trend){
+    if (d.t200 === null || d.t200 === undefined) return false;
+    if (SCREEN.trend === 'above' && d.t200 !== 1) return false;
+    if (SCREEN.trend === 'below' && d.t200 !== 0) return false;
+  }
+  if (SCREEN.quintile && String(d.quintile || '') !== SCREEN.quintile) return false;
+  if (SCREEN.mcap){
+    const m = d.marketCap;
+    if (typeof m !== 'number') return false;
+    if (SCREEN.mcap === 'mega' && !(m >= 200)) return false;
+    if (SCREEN.mcap === 'xl' && !(m >= 50 && m < 200)) return false;
+    if (SCREEN.mcap === 'l' && !(m >= 10 && m < 50)) return false;
+    if (SCREEN.mcap === 's' && !(m < 10)) return false;
+  }
   return true;
 }
 
-function renderBody(){
+// the current table view (filters + screen + sort) — shared by the table
+// renderer and the CSV export so they can never disagree
+function tableRows(){
   let rows = DATA.filter(d => {
     if (activeFilter !== 'all' && d.position !== activeFilter) return false;
     if (selectedSector && d.colorGroup !== selectedSector) return false;
@@ -1933,14 +2034,17 @@ function renderBody(){
     if (!screenPass(d)) return false;
     return true;
   });
-  rows = [...rows].sort((a,b) => {
+  return [...rows].sort((a,b) => {
     let av = a[sortKey], bv = b[sortKey];
     if (av === null || av === undefined) av = sortDir===1 ? Infinity : -Infinity;
     if (bv === null || bv === undefined) bv = sortDir===1 ? Infinity : -Infinity;
     if (typeof av === 'string') return sortDir * av.localeCompare(bv);
     return sortDir * (av - bv);
   });
+}
 
+function renderBody(){
+  const rows = tableRows();
   const tbody = document.getElementById('tbody');
   const CELL = {
     rank: (d,i) => `<td>${i+1}</td>`,
@@ -2039,7 +2143,9 @@ document.getElementById('search').addEventListener('input', e => {
   const els = {
     sector: document.getElementById('scSector'), minScore: document.getElementById('scScore'),
     maxPe: document.getElementById('scPe'), minDiv: document.getElementById('scDiv'),
-    region: document.getElementById('scRegion'),
+    region: document.getElementById('scRegion'), rsi: document.getElementById('scRsi'),
+    trend: document.getElementById('scTrend'), quintile: document.getElementById('scQuintile'),
+    mcap: document.getElementById('scMcap'),
   };
   const savedSel = document.getElementById('scSaved');
   const delBtn = document.getElementById('scDelete');
@@ -2050,13 +2156,16 @@ document.getElementById('search').addEventListener('input', e => {
     const o = document.createElement('option'); o.value = s; o.textContent = `${s} (${counts[s]})`;
     els.sector.appendChild(o);
   });
-  const isActive = () => SCREEN.sector || SCREEN.minScore !== null || SCREEN.maxPe !== null || SCREEN.minDiv !== null || SCREEN.region;
+  const isActive = () => SCREEN.sector || SCREEN.minScore !== null || SCREEN.maxPe !== null || SCREEN.minDiv !== null
+    || SCREEN.region || SCREEN.rsi || SCREEN.trend || SCREEN.quintile || SCREEN.mcap;
   function readPanel(){
     SCREEN.sector = els.sector.value;
     SCREEN.minScore = els.minScore.value ? parseFloat(els.minScore.value) : null;
     SCREEN.maxPe = els.maxPe.value ? parseFloat(els.maxPe.value) : null;
     SCREEN.minDiv = els.minDiv.value ? parseFloat(els.minDiv.value) : null;
     SCREEN.region = els.region.value;
+    SCREEN.rsi = els.rsi.value; SCREEN.trend = els.trend.value;
+    SCREEN.quintile = els.quintile.value; SCREEN.mcap = els.mcap.value;
     chip.classList.toggle('active', !!isActive() || !panel.hidden);
     renderBody();
   }
@@ -2103,6 +2212,36 @@ document.getElementById('search').addEventListener('input', e => {
   });
   refreshSavedList();
 })();
+
+// ---- CSV export (2026-07-27): the rows + columns currently shown ----
+document.getElementById('csvChip').addEventListener('click', () => {
+  const cols = visibleCols().filter(c => c.key !== 'spark');
+  const heads = [];
+  cols.forEach(c => {
+    heads.push(c.key === 'rank' ? 'Rank' : c.key === 'ticker' ? 'Ticker' : c.label);
+    if (c.key === 'ticker') heads.push('Name');
+    if (c.key === 'price') heads.push('Currency');
+  });
+  // raw field values (not display strings) so spreadsheets can compute on them
+  const val = (d, i, k) => k === 'rank' ? i + 1 : k === 'dataSource' ? (d.dataSource || '') : d[k];
+  const rows = tableRows().map((d, i) => {
+    const out = [];
+    cols.forEach(c => {
+      const v = val(d, i, c.key);
+      out.push(v === null || v === undefined ? '' : v);
+      if (c.key === 'ticker') out.push(d.name || '');
+      if (c.key === 'price') out.push(d.currency || '');
+    });
+    return out;
+  });
+  const cell = v => { const s = String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const csv = [heads, ...rows].map(r => r.map(cell).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = 'valuetally-' + new Date().toISOString().slice(0, 10) + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+});
 
 renderHead();
 renderBody();
@@ -2221,6 +2360,8 @@ function renderTechnicalSection(d){
       ${metricTile('Trend cross', crossLabel)}
       ${metricTile('Analyst calls', rec ? `${rec.strongBuy+rec.buy} buy / ${rec.hold} hold / ${rec.sell+rec.strongSell} sell` : '—')}
       ${metricTile('Insiders (90d)', d.insiders ? `${d.insiders.b} buy${d.insiders.b === 1 ? '' : 's'} / ${d.insiders.s} sale${d.insiders.s === 1 ? '' : 's'}` : '—')}
+      ${metricTile('Volatility (1y)', d.vol1y !== null && d.vol1y !== undefined ? fmtNum(d.vol1y, 1) + '%' : '—')}
+      ${metricTile('Max drawdown (1y)', d.mdd1y !== null && d.mdd1y !== undefined ? fmtNum(d.mdd1y, 1) + '%' : '—')}
     </div>
     ${(t.sma50 === null || t.sma50 === undefined || t.rsi14 === null || t.rsi14 === undefined)
       ? `<div style="font-size:12px;color:var(--text-secondary);margin:-6px 0 16px;">Blank indicators mean there isn't enough trading history yet — RSI needs 14 sessions, the trend averages 50 and 200. They fill in automatically as a newly listed stock trades.</div>`
@@ -3481,8 +3622,86 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
       sys.appendChild(c);
     });
     if (!sys.children.length) sys.innerHTML = '<span class="section-sub">Pick data unavailable in this build.</span>';
+    maybeLoadRules();
   };
   document.addEventListener('viewchange', e => { if (e.detail === 'watchlist') renderWatchlistView(); });
+
+  // ----- custom alert rules (2026-07-27) -----
+  // Server truth in D1 (alert_rules); evaluated once per weekday evening by
+  // the Worker's digest cron. One-shot: fired rules show as such until
+  // re-armed. RULES.list is reset whenever the signed-in user can change.
+  let RULES = { list: null, busy: false };
+  const RULE_TEXT = { price_above: 'price ≥', price_below: 'price ≤', score_above: 'combined score ≥',
+    score_below: 'combined score ≤', rsi_above: 'RSI ≥', rsi_below: 'RSI ≤' };
+  function maybeLoadRules(){
+    if (SESSION && RULES.list === null) loadRules(); else renderRules();
+  }
+  async function loadRules(){
+    if (RULES.busy) return;
+    RULES.busy = true;
+    try {
+      const r = await api('/me/rules');
+      if (r.status === 401){ SESSION = null; saveSession(); updateAcctBtn(); RULES.busy = false; renderRules(); return; }
+      const d = await r.json().catch(() => null);
+      if (r.ok && d) RULES.list = d.rules || [];
+    } catch(e){ /* leave as-is; next view render retries */ }
+    RULES.busy = false;
+    renderRules();
+  }
+  function renderRules(){
+    const card = document.getElementById('wlAlertsCard');
+    if (!card) return;
+    if (!SESSION){ card.style.display = 'none'; return; }
+    card.style.display = '';
+    const tbl = document.getElementById('ruleTable');
+    const list = RULES.list || [];
+    tbl.style.display = list.length ? '' : 'none';
+    tbl.querySelector('tbody').innerHTML = list.map(rl => `<tr>
+      <td><span class="pf-link" data-peer="${rl.ticker}">${rl.ticker}</span></td>
+      <td>${RULE_TEXT[rl.kind] || rl.kind} ${rl.threshold}</td>
+      <td>${rl.triggered_at
+        ? 'fired ' + new Date(rl.triggered_at * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+        : 'armed'}</td>
+      <td style="text-align:right;white-space:nowrap">${rl.triggered_at ? `<button class="refresh-btn" data-rearm="${rl.id}">Re-arm</button> ` : ''}<button class="refresh-btn" data-ruledel="${rl.id}">Remove</button></td>
+    </tr>`).join('');
+  }
+  (function ruleWiring(){
+    const card = document.getElementById('wlAlertsCard');
+    if (!card) return;
+    const say2 = (cls, t) => { const m = document.getElementById('ruleMsg'); m.className = 'acct-msg ' + cls; m.textContent = t; };
+    document.getElementById('ruleAddBtn').onclick = async () => {
+      const t = document.getElementById('ruleTicker').value.trim().toUpperCase();
+      const kind = document.getElementById('ruleKind').value;
+      const thr = parseFloat(document.getElementById('ruleThr').value);
+      const rec = DATA.find(x => x.ticker === t || (x.adr && String(x.adr).toUpperCase() === t));
+      if (!rec){ say2('err', 'Pick a ticker this dashboard covers — e.g. AAPL or AZN.L.'); return; }
+      if (!isFinite(thr)){ say2('err', 'Give the alert a number to compare against.'); return; }
+      try {
+        const r = await api('/me/rules', { method: 'POST', body: JSON.stringify({ ticker: rec.ticker, kind, threshold: thr }) });
+        const d = await r.json().catch(() => ({}));
+        if (r.status === 401){ SESSION = null; saveSession(); updateAcctBtn(); renderWatchlistView(); return; }
+        if (!r.ok) throw new Error(d.error || 'Could not save the alert — try again.');
+        RULES.list = d.rules || [];
+        document.getElementById('ruleTicker').value = ''; document.getElementById('ruleThr').value = '';
+        say2('ok', 'Alert saved — checked each weekday evening.'
+          + (kind.startsWith('price') && rec.currency === 'GBp' ? ' Reminder: London prices are in pence.' : ''));
+        renderRules();
+      } catch(e){ say2('err', e.message); }
+    };
+    card.addEventListener('click', async e => {
+      const del = e.target.closest('[data-ruledel]'), re = e.target.closest('[data-rearm]');
+      if (!del && !re) return;
+      const id = Number((del || re).getAttribute(del ? 'data-ruledel' : 'data-rearm'));
+      try {
+        const r = await api(del ? '/me/rules/delete' : '/me/rules/rearm', { method: 'POST', body: JSON.stringify({ id }) });
+        if (r.status === 401){ SESSION = null; saveSession(); updateAcctBtn(); renderWatchlistView(); return; }
+        if (!r.ok) throw new Error();
+        if (del) RULES.list = (RULES.list || []).filter(x => x.id !== id);
+        else RULES.list = (RULES.list || []).map(x => x.id === id ? { ...x, triggered_at: null } : x);
+        renderRules();
+      } catch(err){ say2('err', 'That didn\'t save — try again.'); }
+    });
+  })();
 
   // ----- quick-add search on the watchlist tab -----
   (function wlAdd(){
@@ -3647,8 +3866,8 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
   // tickers: XXX_US_EQ -> XXX; a single trailing lowercase exchange letter
   // before _EQ maps l -> .L, d -> .DE, p -> .PA, a -> .AS; unmatched holdings
   // still render from T212's own numbers, just without a link/score.
-  let PF = { data: null, loaded: false, busy: false, err: null };
-  const resetPF = () => { PF = { data: null, loaded: false, busy: false, err: null }; };
+  let PF = { data: null, loaded: false, busy: false, err: null, hist: null, histLoaded: false };
+  const resetPF = () => { PF = { data: null, loaded: false, busy: false, err: null, hist: null, histLoaded: false }; RULES.list = null; };
 
   const T212_SUFFIX = { l: '.L', d: '.DE', p: '.PA', a: '.AS' };
   let pfLookup = null;
@@ -3713,6 +3932,7 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
     const rows = d.positions || [];
     if (!rows.length){
       table.style.display = 'none';
+      document.getElementById('pfAnalytics').style.display = 'none';
       note.textContent = 'No open positions in this account yet.';
       return;
     }
@@ -3747,6 +3967,101 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
     const cashLine = (cash.total !== null && cash.total !== undefined && cash.free !== null && cash.free !== undefined)
       ? `Account total ${pfMoney(cash.total)} — positions plus ${pfMoney(cash.free)} free cash. ` : '';
     note.textContent = cashLine + `${rows.length} position${rows.length === 1 ? '' : 's'}${matched ? `, ${matched} covered here — tap a ticker for its scores` : ''}. Prices are in each instrument's own currency; values and P/L are converted to your account currency${totVAll ? '' : ' (* total excludes positions whose currency could not be converted)'}. Read-only — nothing on this page can trade.`;
+    renderPfAnalytics();
+  }
+
+  // ----- portfolio analytics (2026-07-27): allocation, weighted score, concentration -----
+  // Pure client-side from the positions we already have + DATA; only positions
+  // with a converted account-currency value participate (shares need one unit).
+  function renderPfAnalytics(){
+    const wrap = document.getElementById('pfAnalytics');
+    const vals = ((PF.data && PF.data.positions) || []).filter(p => p.valueAcct !== null && p.valueAcct !== undefined);
+    if (vals.length < 2){ wrap.style.display = 'none'; return; }
+    wrap.style.display = '';
+    const tot = vals.reduce((s, p) => s + p.valueAcct, 0);
+    const bySector = {}, byRegion = {}, byCcy = {};
+    let wSum = 0, wTot = 0;
+    vals.forEach(p => {
+      const our = pfMap(p.t212);
+      const rec = our ? DATA.find(x => x.ticker === our) : null;
+      const sec = rec ? (rec.sector || 'Unknown sector') : 'Not covered here';
+      bySector[sec] = (bySector[sec] || 0) + p.valueAcct;
+      const reg = rec ? (isEuRow(rec) ? 'UK / Europe' : 'US') : 'Other';
+      byRegion[reg] = (byRegion[reg] || 0) + p.valueAcct;
+      const c = p.ccy === 'GBX' ? 'GBP' : (p.ccy || 'Unknown');
+      byCcy[c] = (byCcy[c] || 0) + p.valueAcct;
+      if (rec && typeof rec.combinedScore === 'number'){ wSum += p.valueAcct * rec.combinedScore; wTot += p.valueAcct; }
+    });
+    const share = v => Math.round(100 * v / tot);
+    const barBlock = (title, obj, cap) => {
+      const ents = Object.entries(obj).sort((a, b) => b[1] - a[1]);
+      const main = ents.slice(0, cap);
+      const rest = ents.slice(cap).reduce((s, e) => s + e[1], 0);
+      if (rest > 0) main.push(['Other', rest]);
+      return `<div class="pf-bb"><div class="pf-bb-t">${title}</div>` + main.map(([k, v]) => `
+        <div class="pf-bb-row"><span class="pf-bb-l" title="${esc2(k)}">${esc2(k)}</span>
+        <span class="pf-bb-track"><span style="width:${Math.max(2, 100 * v / tot)}%"></span></span>
+        <span class="pf-bb-v">${share(v)}%</span></div>`).join('') + '</div>';
+    };
+    document.getElementById('pfAlloc').innerHTML =
+      barBlock('By sector', bySector, 6) + barBlock('By region', byRegion, 4) + barBlock('By listing currency', byCcy, 4);
+    const notes = [];
+    if (wTot > 0){
+      const ws = wSum / wTot;
+      const covered = DATA.filter(x => typeof x.combinedScore === 'number');
+      const pctl = covered.length ? Math.round(100 * covered.filter(x => x.combinedScore <= ws).length / covered.length) : null;
+      notes.push(`<b>Value-weighted combined score: ${ws.toFixed(1)}</b>${pctl !== null ? ` — around the ${pctl}th percentile of the ${covered.length} covered stocks` : ''} (${Math.round(100 * wTot / tot)}% of your value is in names this dashboard covers).`);
+    }
+    let flagged = false;
+    const top = [...vals].sort((a, b) => b.valueAcct - a.valueAcct)[0];
+    if (top && top.valueAcct / tot > 0.15){
+      notes.push(`⚠ <b>${esc2(pfMap(top.t212) || top.t212)}</b> is ${share(top.valueAcct)}% of your portfolio — a lot riding on one stock.`);
+      flagged = true;
+    }
+    const topSec = Object.entries(bySector).filter(([k]) => k !== 'Not covered here').sort((a, b) => b[1] - a[1])[0];
+    if (topSec && topSec[1] / tot > 0.4){
+      notes.push(`⚠ <b>${esc2(topSec[0])}</b> is ${share(topSec[1])}% of your value — heavy sector concentration.`);
+      flagged = true;
+    }
+    if (!flagged) notes.push('No single position over 15% and no sector over 40% of value — reasonably spread out.');
+    notes.push('<span style="font-size:11.5px">Shares of converted position value, not advice.</span>');
+    document.getElementById('pfProfile').innerHTML = notes.map(n => `<p style="margin:6px 0">${n}</p>`).join('');
+    renderPfHistory();
+  }
+
+  // value-over-time line from the Worker's daily snapshots (account currency)
+  async function renderPfHistory(){
+    const el = document.getElementById('pfHistWrap');
+    if (!PF.histLoaded){
+      PF.histLoaded = true;
+      try {
+        const r = await api('/me/portfolio/history');
+        const d = await r.json().catch(() => null);
+        PF.hist = (r.ok && d && d.days) || [];
+      } catch(e){ PF.hist = []; }
+    }
+    const days = PF.hist || [];
+    if (days.length < 2){
+      el.innerHTML = '<div class="section-sub" style="margin:4px 0 0">Your value line starts building now — the account total is snapshotted every weekday evening, and the chart appears once there are a couple of points.</div>';
+      return;
+    }
+    const W = 640, H = 170;
+    const xs = days.map(x => x.d), ys = days.map(x => x.total);
+    const x0 = xs[0], x1 = xs[xs.length - 1];
+    const lo = Math.min(...ys), hi = Math.max(...ys), span = (hi - lo) || Math.abs(hi) * 0.02 || 1;
+    const X = v => 8 + (W - 16) * (x1 === x0 ? 0.5 : (v - x0) / (x1 - x0));
+    const Y = v => H - 26 - (H - 52) * ((v - lo) / span);
+    const pts = days.map(p => X(p.d).toFixed(1) + ',' + Y(p.total).toFixed(1)).join(' ');
+    const chg = ys[0] ? (ys[ys.length - 1] / ys[0] - 1) * 100 : 0;
+    const dFmt = dn => new Date(dn * 86400000).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+    el.innerHTML = `<div class="section-sub" style="margin:2px 0 6px">${pfMoney(ys[ys.length - 1])} now · <span class="${chg >= 0 ? 'pos' : 'neg'}">${(chg >= 0 ? '+' : '') + chg.toFixed(1)}%</span> since ${dFmt(x0)} · one point per weekday evening, account currency</div>
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
+        <line x1="8" y1="${Y(lo)}" x2="${W - 8}" y2="${Y(lo)}" stroke="var(--gridline)" stroke-width="1"/>
+        <line x1="8" y1="${Y(hi)}" x2="${W - 8}" y2="${Y(hi)}" stroke="var(--gridline)" stroke-width="1"/>
+        <text x="10" y="${Y(hi) - 5}" font-size="10.5" fill="var(--text-muted)">${pfMoney(hi)}</text>
+        <text x="10" y="${Y(lo) + 13}" font-size="10.5" fill="var(--text-muted)">${pfMoney(lo)}</text>
+        <polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+      </svg>`;
   }
 
   window.renderPortfolioView = function(){

@@ -566,6 +566,28 @@ for d in records:
     d["weekChange"] = (round((d["price"] / _p5 - 1) * 100, 2)
                        if _p5 and isinstance(d.get("price"), (int, float)) else None)
     d["changeNote"] = change_note(d, _past)
+    # risk metrics over ~1y of daily closes (native ccy — returns are unit-
+    # invariant, so pence vs pounds doesn't matter): annualized daily-return
+    # stdev and worst peak-to-trough drawdown; null until ~3 months of history
+    _cl = _past[-252:] + ([d["price"]] if isinstance(d.get("price"), (int, float)) else [])
+    _rets = [_cl[i] / _cl[i - 1] - 1 for i in range(1, len(_cl)) if _cl[i - 1]]
+    if len(_rets) >= 60:
+        _mu = sum(_rets) / len(_rets)
+        _var = sum((r - _mu) ** 2 for r in _rets) / (len(_rets) - 1)
+        d["vol1y"] = round((_var ** 0.5) * (252 ** 0.5) * 100, 1)
+        _peak, _mdd = _cl[0], 0.0
+        for _c in _cl:
+            if _c > _peak: _peak = _c
+            elif _c / _peak - 1 < _mdd: _mdd = _c / _peak - 1
+        d["mdd1y"] = round(_mdd * 100, 1)
+    else:
+        d["vol1y"] = d["mdd1y"] = None
+    # top-level copies for the table screener (technicals ship in detail-data,
+    # but filters run on the slim DATA records)
+    _tech = d.get("technicals") or {}
+    d["rsi"] = _tech.get("rsi14")
+    d["t200"] = ((1 if d["price"] > _tech["sma200"] else 0)
+                 if isinstance(d.get("price"), (int, float)) and _tech.get("sma200") else None)
 
 # prune tickers no longer in the universe (removed foreign lines etc.) so the
 # fallback store — and /prices, which derives its symbol list from it — track the pool
@@ -708,6 +730,21 @@ for d in records:
         dirty = True
     # (scoreDelta is computed earlier, before the last-data dump)
     dirty |= update_long_history(e, ts, cl, d["combinedScore"], today_dn)
+    # daily valuation-history point (2026-07-27): one {pe, evEbitda, divYield}
+    # snapshot per UTC day, never pruned — accumulates so future "P/E over
+    # time" charts have a series to draw. Same cadence as the score series, so
+    # this adds no extra shard writes; in-place refreshes of today's values
+    # are not durable on their own (matches the close behavior above).
+    for _k in ("vt", "vpe", "vev", "vdy"):
+        e.setdefault(_k, [])
+    _r2 = lambda v: round(v, 2) if isinstance(v, (int, float)) else None
+    _vals = (_r2(d.get("pe")), _r2(d.get("evEbitda")), _r2(d.get("divYield")))
+    if not e["vt"] or e["vt"][-1] != today_dn:
+        e["vt"].append(today_dn)
+        e["vpe"].append(_vals[0]); e["vev"].append(_vals[1]); e["vdy"].append(_vals[2])
+        dirty = True
+    else:
+        e["vpe"][-1], e["vev"][-1], e["vdy"][-1] = _vals
     if dirty:
         json.dump(e, open(f"{STATE}/history/{d['ticker'].replace('/', '_')}.json", "w"), separators=(",", ":"))
         lh_written += 1

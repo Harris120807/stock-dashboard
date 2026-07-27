@@ -110,7 +110,9 @@ def deepen():
         if len(t) <= len(old["t"]):
             print(f"{tkr}: fetch no deeper than stored ({len(old['t'])} points) — kept")
             continue
-        shard_write(tkr, {"t": t, "p": p, "st": old.get("st") or [], "s": old.get("s") or []})
+        # spread `old` first: preserves the score series AND any extra series
+        # (vt/vpe/vev/vdy valuation history) — only the price arrays are replaced
+        shard_write(tkr, {**old, "t": t, "p": p})
         wrote += 1
         print(f"{tkr}: deepened {len(old['t'])} -> {len(t)} points")
     print(f"deepen: {len(targets)} shallow of {len(tickers)}; wrote={wrote}")
@@ -132,7 +134,7 @@ def main():
             continue
         t, p = tp
         prior = shard_read(tkr)
-        shard_write(tkr, {"t": t, "p": p, "st": prior.get("st") or [], "s": prior.get("s") or []})
+        shard_write(tkr, {**prior, "t": t, "p": p})
         wrote += 1
         print(f"{tkr}: {len(t)} points, last close {p[-1]}")
     print(f"Wrote {wrote}/{len(tickers)} tickers"
