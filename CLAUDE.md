@@ -387,6 +387,10 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   one-click `GET /alerts/unsubscribe?u=TOKEN`. Manual trigger:
   `POST /admin/send-digests`. scoreDelta is computed BEFORE the last-data.json
   dump in refresh.py specifically so the digest can read it there.
+  **Since 2026-07-27** the same cron pass also evaluates custom alert rules
+  and snapshots connected T212 portfolios (see the 07-27 batch section); the
+  digest user query is a LEFT JOIN so rule-only users (no watchlist) still
+  get their alert emails.
 - **Score history UI**: score overlay now on 30d/1Y/5Y detail charts; Compare's
   "Combined Score" metric supports the 1Y range = FULL daily score history from
   shards (short lines = tracking began July 2026).
@@ -548,11 +552,23 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   in git, never printed; rotating it makes stored keys undecryptable →
   users just see the reconnect prompt, no data loss beyond that). NEVER
   store broker keys plaintext. Keys are never echoed in any response/log.
-- **Worker routes** (sessionUser-gated, no-store): `POST /me/t212 {key}` —
-  format check (15–300 non-space chars), validate via T212
-  `/equity/account/cash` against **live first, then demo** on 401/403
-  (remembers which env worked), fetch `/equity/account/info` for
-  currencyCode, encrypt+upsert, rate-limited 6/5min per user;
+- **T212 auth is HTTP BASIC with a key+secret PAIR (2026-07-26 evening)**:
+  the app's key-creation screen shows an API key AND a one-time secret;
+  `Authorization: Basic base64(key:secret)`. The older single-token header
+  just 401s (burned an hour on the owner's valid keys). Stored credential =
+  `key:secret` in one encrypted blob; t212Fetch falls back to the raw-token
+  header for any legacy colon-less value. Connect form has TWO fields.
+- **Worker routes** (sessionUser-gated, no-store): `POST /me/t212
+  {key, secret}` — format check (10–300 non-space chars each), validate via T212
+  **`/equity/portfolio`** against **live first, then demo** (remembers which
+  env worked). NOT /equity/account/cash: T212 keys have GRANULAR permission
+  checkboxes and a Portfolio-only key 403s on account endpoints — that
+  mis-rejected the owner's valid key on day one (fixed 2026-07-26; error
+  now surfaces upstream statuses + a scope hint, and the validation
+  response primes the 60s portfolio cache so the immediate page load
+  doesn't hit T212's ~1 req/5s limit). `/equity/account/info` (currencyCode)
+  needs the Account-data permission and is skipped silently without it.
+  Then encrypt+upsert, rate-limited 6/5min per user;
   `POST /me/t212/delete` — row + KV caches wiped; `GET /me/portfolio` —
   404 `{connected:false}` when no key, else decrypt → T212
   `/equity/portfolio` from the stored env, positions mapped to
@@ -566,6 +582,18 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   expirationTtl 60, CONFIG binding), account currency cached 30d
   (`t212cur:{userId}`); the page's Refresh button self-disables for 6s.
   T212 auth header is the RAW key, NOT `Bearer`.
+- **Currency handling (2026-07-26 late)**: T212 prices are in each
+  INSTRUMENT's currency (US in USD, LSE in PENCE) while ppl is in the
+  ACCOUNT currency — raw qty×price sums were meaningless across a mixed
+  portfolio (shipped that way briefly). Worker infers instrument ccy from
+  the ticker suffix (`t212Ccy`: _US_EQ→USD, l→GBX, d/p/a/e→EUR, s→CHF),
+  converts each value to the account currency via Yahoo FX (`fxRate`,
+  1h KV cache `fx:{PAIR}`, GBX = GBP/100) → per-position `ccy` +
+  `valueAcct`. UI: prices shown in instrument ccy (pence as `1,553p`),
+  Value column + total in account ccy; unconvertible rows fall back to
+  instrument-ccy value and are excluded from the total (asterisk note).
+  If connect can't resolve the account currency (T212 rate limit on
+  account/info) the primed cache lives only 10s so the next fetch fixes it.
 - **Ticker mapping (best-effort, client-side in template.html `pfMap`)**:
   `XXX_US_EQ` → `XXX`; one trailing lowercase exchange letter before `_EQ`
   maps l→`.L`, d→`.DE`, p→`.PA`, a→`.AS`; matched against DATA tickers AND
@@ -596,6 +624,79 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   sentence in the detail card's Combined Score box. Wording is deliberately
   factual (which bucket) — backtest return numbers stay admin-side with
   their caveats. These are the same buckets backtest.py ranks by.
+
+## Risk metrics / metric history / alerts / portfolio analytics / broadcast (2026-07-27 batch)
+
+- **Risk metrics (refresh.py)**: `vol1y` (annualized stdev of daily returns,
+  %) and `mdd1y` (worst peak-to-trough, %, negative) computed from the last
+  ~252 shard closes + today's price in the same loop as scoreDelta/weekChange;
+  null until ~60 daily returns exist (young listings). SLIM fields (also in
+  last-data.json) → "Volatility (1y)" / "Max drawdown (1y)" tiles in the
+  detail card's tech grid. `rsi` and `t200` (1 above / 0 below 200-day, null
+  unknown) are top-level slim copies of the technicals — the table screener
+  and the Worker's rule evaluation read slim/last-data, not detail-data.
+- **Daily valuation history (2026-07-27)**: shards gain `vt/vpe/vev/vdy`
+  (daynum + P/E + EV/EBITDA + divYield, 2dp, one point per UTC day, never
+  pruned) appended in refresh.py's shard loop — same cadence as the score
+  series so NO extra git churn. Purpose: accumulate data so future "P/E over
+  time" charts are possible (none drawn yet — series only starts 2026-07-27).
+  backfill_history.py deepen/main now write `{**old, "t": t, "p": p}` so the
+  extra series (and any future shard keys) survive a price-series rebuild —
+  don't regress that to an explicit key list.
+- **Custom alert rules**: D1 `alert_rules(id, user_id, ticker, kind,
+  threshold, created_at, triggered_at)`; kinds price_above/price_below/
+  score_above/score_below/rsi_above/rsi_below (_above fires at ≥, _below at
+  ≤). Routes GET/POST `/me/rules`, POST `/me/rules/delete`, `/me/rules/rearm`
+  (all sessionUser-gated; 20 rules/user cap). Evaluated once per weekday by
+  sendDigests against last-data.json; **one-shot**: triggered_at is stamped
+  ONLY after the email actually sends (mail failure = re-fires next day) and
+  fired rules sit paused until re-armed. Price thresholds are in the LISTING
+  unit (pence for London) — same numbers the site shows. Emails ride the
+  existing digest ("Your alerts" section, same alerts opt-in + unsub token).
+  UI: "My alerts" card on the watchlist tab (add form + armed/fired table,
+  re-arm/remove; RULES state reset inside resetPF so user switches can't
+  leak another user's rules).
+- **Portfolio value history**: D1 `portfolio_history(user_id, d, total,
+  invested, ppl)` PK(user_id,d); `snapshotPortfolios` piggybacks the 20:30
+  digest cron — ONE `/equity/account/cash` call per connected broker key,
+  same-day re-runs overwrite (last run stands). `GET /me/portfolio/history`
+  → the user's series; rows wiped on T212 disconnect AND account delete
+  (privacy: no key, no broker-derived data). Template draws an SVG value
+  line + "£X now · +Y% since date" under the holdings table (needs ≥2 points
+  — appears from the second trading day after connecting).
+- **Portfolio analytics (template, client-only)**: `renderPfAnalytics()` in
+  the accounts IIFE — allocation bars by sector/region/listing currency
+  (converted `valueAcct` shares only), value-weighted combined score + its
+  percentile among covered stocks, concentration flags (single position >15%,
+  single sector >40%). Shown when ≥2 positions have converted values.
+- **Table extras**: **CSV export** chip downloads the CURRENT view (filters +
+  screen + sort + visible columns; raw field values, BOM'd UTF-8; Ticker
+  gains a Name column, Price a Currency column) — the row pipeline was
+  extracted to `tableRows()`, shared by renderBody and the export so they
+  can't diverge. **Screener depth**: RSI zone (`d.rsi`), trend vs 200-day
+  (`d.t200`), quintile, market-cap bucket (mega ≥200 / 50–200 / 10–50 /
+  <10 $B) — new `els` keys ride the existing saved-screens mechanism.
+  FIXED while there: the min-combined-score options still carried the
+  pre-v5 scale (≥1.2/1.1/1.0/0.9 — matched everything); now ≥70/60/50/40.
+  Old saved screens referencing the stale values silently lose that one
+  filter on restore (select falls back to "any").
+- **Worker error log**: D1 `error_log(at, route, detail)`; `errLog()` (same
+  best-effort pattern as secLog) called from every catch in the fetch
+  dispatcher (admin/auth/refresh/prices/api). detail = OUR exception text
+  only, never request bodies/tokens. `GET /admin/errors` → 24h count + last
+  30 rows; admin Status card renders the "Worker errors" line (`#errLine`,
+  `loadErrors()` in loadAll).
+- **Admin broadcast**: `POST /admin/broadcast {subject, body[, confirm]}` —
+  without `confirm:true` returns the recipient count ONLY (no send); with it,
+  emails every verified alerts=1 user (canary excluded) via the site mail
+  shell + standard unsubscribe link, then secLogs kind `broadcast`. Admin UI:
+  "Email broadcast" card on Overview (right column) — recipient-count
+  preview → browser confirm() → send. Body is plain text (escaped,
+  line-breaks kept).
+- D1 migrations for the three new tables ran 2026-07-27 (REST /query with the
+  deploy token); `worker/schema.sql` documents them. Gate's "Accounts &
+  privacy" paragraph updated to cover alert rules + the daily account-total
+  snapshot — keep it honest with what's stored.
 
 ## Multi-agent coordination
 
@@ -658,6 +759,15 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   canary tripwire + anomaly cron, via agent); Trading 212 portfolio import
   (encrypted broker keys + #portfolio 9th tab, via agent); admin Accounts
   tab (5th admin tab); combined-score quintile display.
+- 2026-07-27: T212 auth fixed to Basic key:secret + currency truth from
+  instrument metadata + account-total line (late 07-26/early 07-27); then the
+  9-feature batch: risk metrics (vol/drawdown) + slim rsi/t200; daily
+  valuation-history accumulation in shards; custom per-stock alert rules
+  (D1 + digest evaluation + watchlist-tab UI); portfolio value snapshots +
+  value-over-time line; portfolio analytics (allocation/weighted score/
+  concentration); CSV export + deeper screener (RSI/trend/quintile/mktcap,
+  stale score options fixed); Worker error log + admin line; admin broadcast
+  email.
 
 ## Open items (owner-side)
 
