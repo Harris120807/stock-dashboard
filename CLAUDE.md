@@ -304,7 +304,11 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   f7e94fe4cd224ded94bc270d659a238d, ~60s propagation, fail-open.
 - **Requests tab**: grid merges the durable log with ntfy's live ~12h cache
   (same `TICK (#N)` title contract; NEW markers; 60s auto-refresh; TEST
-  filtered). Log timestamps are epoch SECONDS — normalize to ms before Date()
+  filtered). **Fulfilled requests auto-hide (2026-07-27)**: tickers present
+  in `/api/scores` (i.e. actually LIVE, not merely submitted) are filtered
+  out of the grid, with a "N fulfilled requests hidden" note; `REQ_ALIAS`
+  (GOOGL→GOOG, BRK.A/B→BRK-B, FB→META) counts fulfilled-under-another-symbol
+  requests as live. The durable log itself is untouched. Log timestamps are epoch SECONDS — normalize to ms before Date()
   (shipped a 21-Jan-1970 bug). **Add** on a dotted native symbol calls
   `/admin/adr-lookup` (Yahoo-search two-step: symbol→name→US-exchange
   candidates; ranked listed > Y-ADR > F-line per the RHHBY trap) and stages a

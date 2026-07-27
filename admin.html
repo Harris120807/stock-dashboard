@@ -183,7 +183,7 @@ a{color:var(--accent)}
       <h2>Visitor requests</h2>
       <div class="req-grid" id="reqGrid"></div>
       <div class="msg" id="reqMsg"></div>
-      <div class="hint">Tickers visitors asked for on the requests page, most-requested first. <b>Add</b> looks up the ADR pairing where needed and stages the ticker into the form — review, then submit.</div>
+      <div class="hint">Tickers visitors asked for on the requests page, most-requested first. <b>Add</b> looks up the ADR pairing where needed and stages the ticker into the form — review, then submit. Requests disappear from here automatically once the stock is actually live on the dashboard (not just submitted).</div>
     </div>
 
     <div class="card">
@@ -392,12 +392,27 @@ async function loadRequests() {
     });
     // pipeline log stores epoch SECONDS; live cache entries above use ISO strings
     const toMs = v => typeof v === 'number' ? v * 1000 : (Date.parse(v) || 0);
-    const rows = Object.entries(by)
+    // requests whose stock is already LIVE on the dashboard (in /api/scores,
+    // i.e. actually published — not merely submitted to add-tickers) drop off
+    // the grid automatically; the durable log still remembers them. Aliases
+    // cover fulfilled-under-another-symbol cases: share classes (site tracks
+    // one line per company) and renames.
+    const REQ_ALIAS = { GOOGL: 'GOOG', 'BRK.A': 'BRK-B', 'BRK.B': 'BRK-B', FB: 'META' };
+    const isLive = t => tracked.has(t) || tracked.has(REQ_ALIAS[t]);
+    const all = Object.entries(by);
+    const rows = all.filter(([t]) => !isLive(t))
       .sort((a, b) => (b[1].count - a[1].count) || (toMs(b[1].lastAt) - toMs(a[1].lastAt)));
-    $('reqMsg').textContent = fresh ? fresh + ' new since the last pipeline run — grid refreshes every minute.' : '';
+    const done = all.length - rows.length;
+    $('reqMsg').textContent = (fresh ? fresh + ' new since the last pipeline run — grid refreshes every minute. ' : '')
+      + (done ? done + ' fulfilled request' + (done === 1 ? '' : 's') + ' hidden (already live).' : '');
     $('reqMsg').className = 'msg ok';
     grid.innerHTML = '';
-    if (!rows.length) { $('reqMsg').textContent = 'No visitor requests logged yet.'; return; }
+    if (!rows.length) {
+      $('reqMsg').textContent = all.length
+        ? 'No open requests — every requested stock is already live on the dashboard.'
+        : 'No visitor requests logged yet.';
+      return;
+    }
     for (const [t, info] of rows) {
       const tile = document.createElement('div');
       tile.className = 'req-tile';
@@ -408,39 +423,35 @@ async function loadRequests() {
       meta.textContent = (info.fresh ? 'NEW · ' : '') + info.count + '× requested' + (last ? ' · last ' + last : '');
       if (info.fresh) meta.style.color = 'var(--good)';
       tile.append(b, meta);
-      if (tracked.has(t)) {
-        const span = document.createElement('span'); span.className = 'tracked'; span.textContent = '✓ tracked';
-        tile.append(span);
-      } else {
-        const btn = document.createElement('button'); btn.textContent = 'Add';
-        btn.onclick = async () => {
-          btn.disabled = true;
-          let staged = t, note = '';
-          if (t.includes('.')) {
-            // non-US listing: look up US ADR candidates and pre-fill the pair
-            btn.textContent = 'Looking up…';
-            try {
-              const d = await authFetch('/admin/adr-lookup?symbol=' + encodeURIComponent(t)).then(r => r.json());
-              const c = (d.candidates || [])[0];
-              if (c) {
-                staged = t + ':' + c.symbol;
-                note = `Suggested ADR for ${t}: ${c.symbol} (${c.exchange}, ${c.name}) — check before submitting.`
-                  + ((d.candidates.length > 1) ? ' Alternatives: ' + d.candidates.slice(1).map(x => x.symbol).join(', ') : '');
-              } else {
-                note = `No US ADR found for ${t}${d.name ? ' (' + d.name + ')' : ''} — it likely can't be added without one.`;
-              }
-            } catch (e) { note = 'ADR lookup failed — pair it manually as NATIVE:ADR.'; }
-          }
-          const cur = $('tickIn').value.trim();
-          const have = cur.toUpperCase().split(/[\s,]+/).filter(Boolean);
-          if (!have.some(x => x.split(':')[0] === t)) $('tickIn').value = cur ? cur + ', ' + staged : staged;
-          $('tickIn').dispatchEvent(new Event('input'));
-          if (note) { $('addMsg').textContent = note; $('addMsg').className = 'msg'; }
-          $('tickIn').scrollIntoView({ behavior: 'smooth', block: 'center' });
-          btn.textContent = 'Staged ✓';
-        };
-        tile.append(btn);
-      }
+      // (already-live tickers never reach this loop — they're filtered above)
+      const btn = document.createElement('button'); btn.textContent = 'Add';
+      btn.onclick = async () => {
+        btn.disabled = true;
+        let staged = t, note = '';
+        if (t.includes('.')) {
+          // non-US listing: look up US ADR candidates and pre-fill the pair
+          btn.textContent = 'Looking up…';
+          try {
+            const d = await authFetch('/admin/adr-lookup?symbol=' + encodeURIComponent(t)).then(r => r.json());
+            const c = (d.candidates || [])[0];
+            if (c) {
+              staged = t + ':' + c.symbol;
+              note = `Suggested ADR for ${t}: ${c.symbol} (${c.exchange}, ${c.name}) — check before submitting.`
+                + ((d.candidates.length > 1) ? ' Alternatives: ' + d.candidates.slice(1).map(x => x.symbol).join(', ') : '');
+            } else {
+              note = `No US ADR found for ${t}${d.name ? ' (' + d.name + ')' : ''} — it likely can't be added without one.`;
+            }
+          } catch (e) { note = 'ADR lookup failed — pair it manually as NATIVE:ADR.'; }
+        }
+        const cur = $('tickIn').value.trim();
+        const have = cur.toUpperCase().split(/[\s,]+/).filter(Boolean);
+        if (!have.some(x => x.split(':')[0] === t)) $('tickIn').value = cur ? cur + ', ' + staged : staged;
+        $('tickIn').dispatchEvent(new Event('input'));
+        if (note) { $('addMsg').textContent = note; $('addMsg').className = 'msg'; }
+        $('tickIn').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        btn.textContent = 'Staged ✓';
+      };
+      tile.append(btn);
       grid.append(tile);
     }
   } catch (e) { $('reqMsg').textContent = 'Could not load the requests log.'; $('reqMsg').className = 'msg err'; }
