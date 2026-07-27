@@ -672,6 +672,10 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   (converted `valueAcct` shares only), value-weighted combined score + its
   percentile among covered stocks, concentration flags (single position >15%,
   single sector >40%). Shown when ≥2 positions have converted values.
+- **Sortable headers everywhere (2026-07-27)**: the watchlist and portfolio
+  tables gained main-table-style header-click sorting (`WL_SORT`/`PF_SORT`
+  in the accounts IIFE; null values always last; portfolio Total row stays
+  pinned; global `thead th` CSS already provided the pointer/arrow styling).
 - **Table extras**: **CSV export** chip downloads the CURRENT view (filters +
   screen + sort + visible columns; raw field values, BOM'd UTF-8; Ticker
   gains a Name column, Price a Currency column) — the row pipeline was

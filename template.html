@@ -3578,6 +3578,16 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
   });
 
   // ----- watchlist view -----
+  // header-click sorting (2026-07-27): null key = default order (combined
+  // desc, i.e. DATA order); null values always sort to the end
+  let WL_SORT = { key: null, dir: -1 };
+  const nullLast = (arr, get, dir) => [...arr].sort((a, b) => {
+    let av = get(a), bv = get(b);
+    const an = av === null || av === undefined, bn = bv === null || bv === undefined;
+    if (an || bn) return an && bn ? 0 : an ? 1 : -1;
+    if (typeof av === 'string') return dir * String(av).localeCompare(String(bv));
+    return dir * (av - bv);
+  });
   window.renderWatchlistView = function(){
     const view = document.getElementById('view-watchlist');
     if (!view || view.offsetParent === null) return;
@@ -3588,13 +3598,22 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
     // signed out: no watchlist UI at all — just the sign-in prompt
     document.getElementById('wlSignedOut').style.display = SESSION ? 'none' : '';
     document.getElementById('wlAddWrap').style.display = SESSION ? '' : 'none';
-    const rows = SESSION ? DATA.filter(d => STARS.has(d.ticker)) : [];
+    let rows = SESSION ? DATA.filter(d => STARS.has(d.ticker)) : [];
+    if (WL_SORT.key) rows = nullLast(rows, d => d[WL_SORT.key], WL_SORT.dir);
     document.getElementById('wlEmpty').style.display = (SESSION && !rows.length) ? '' : 'none';
     const table = document.getElementById('wlTable');
     table.style.display = rows.length ? '' : 'none';
     if (!rows.length) table.querySelector('tbody').innerHTML = '';
     if (rows.length){
-      table.querySelector('thead').innerHTML = '<tr><th></th><th>Ticker</th><th>Name</th><th class="num">Price</th><th class="num">Today</th><th class="num">Value</th><th class="num">Combined</th><th>Absolute</th></tr>';
+      const WL_COLS = [['ticker', 'Ticker', ''], ['name', 'Name', ''], ['price', 'Price', 'num'], ['dayChange', 'Today', 'num'], ['valueScore', 'Value', 'num'], ['combinedScore', 'Combined', 'num'], ['absoluteScore', 'Absolute', '']];
+      table.querySelector('thead').innerHTML = '<tr><th></th>' + WL_COLS.map(([k, label, cls]) =>
+        `<th class="${cls}" data-k="${k}">${label}${WL_SORT.key === k ? `<span class="arrow">${WL_SORT.dir === 1 ? '▲' : '▼'}</span>` : ''}</th>`).join('') + '</tr>';
+      table.querySelectorAll('thead th[data-k]').forEach(th => th.addEventListener('click', () => {
+        const k = th.getAttribute('data-k');
+        if (WL_SORT.key === k) WL_SORT.dir *= -1;
+        else WL_SORT = { key: k, dir: (k === 'ticker' || k === 'name') ? 1 : -1 };
+        renderWatchlistView();
+      }));
       table.querySelector('tbody').innerHTML = rows.map(d => `
         <tr data-goto="${d.ticker}">
           <td><button class="star-btn on" data-star="${d.ticker}">★</button></td>
@@ -3868,6 +3887,7 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
   // before _EQ maps l -> .L, d -> .DE, p -> .PA, a -> .AS; unmatched holdings
   // still render from T212's own numbers, just without a link/score.
   let PF = { data: null, loaded: false, busy: false, err: null, hist: null, histLoaded: false };
+  let PF_SORT = { key: null, dir: -1 };   // null key = T212's own order
   const resetPF = () => { PF = { data: null, loaded: false, busy: false, err: null, hist: null, histLoaded: false }; RULES.list = null; };
 
   const T212_SUFFIX = { l: '.L', d: '.DE', p: '.PA', a: '.AS' };
@@ -3935,7 +3955,7 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
     const upd = document.getElementById('pfUpdated');
     upd.textContent = d.fetchedAt ? 'Updated ' + new Date(d.fetchedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '';
     const table = document.getElementById('pfTable'), note = document.getElementById('pfNote');
-    const rows = d.positions || [];
+    let rows = d.positions || [];
     if (!rows.length){
       table.style.display = 'none';
       document.getElementById('pfAnalytics').style.display = 'none';
@@ -3945,7 +3965,30 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
     table.style.display = '';
     const cur = d.currency ? ` (${d.currency})` : '';
     const anyAcct = rows.some(p => p.valueAcct !== null && p.valueAcct !== undefined);
-    table.querySelector('thead').innerHTML = `<tr><th>Instrument</th><th class="num">Qty</th><th class="num">Avg price</th><th class="num">Price</th><th class="num">Value${anyAcct ? cur : ''}</th><th class="num">P/L${cur}</th></tr>`;
+    // header-click sorting; the Value key matches the displayed cell (account-
+    // ccy value, instrument-ccy fallback), so the order matches what's on screen
+    const psv = (p, k) => k === 'name' ? (pfMap(p.t212) || p.t212 || '')
+      : k === 'value' ? (p.valueAcct !== null && p.valueAcct !== undefined ? p.valueAcct
+                         : (p.qty !== null && p.price !== null ? p.qty * p.price : null))
+      : p[k];
+    const PF_COLS = [['name', 'Instrument', ''], ['qty', 'Qty', 'num'], ['avgPrice', 'Avg price', 'num'], ['price', 'Price', 'num'], ['value', `Value${anyAcct ? cur : ''}`, 'num'], ['ppl', `P/L${cur}`, 'num']];
+    table.querySelector('thead').innerHTML = '<tr>' + PF_COLS.map(([k, label, cls]) =>
+      `<th class="${cls}" data-k="${k}">${label}${PF_SORT.key === k ? `<span class="arrow">${PF_SORT.dir === 1 ? '▲' : '▼'}</span>` : ''}</th>`).join('') + '</tr>';
+    table.querySelectorAll('thead th[data-k]').forEach(th => th.addEventListener('click', () => {
+      const k = th.getAttribute('data-k');
+      if (PF_SORT.key === k) PF_SORT.dir *= -1;
+      else PF_SORT = { key: k, dir: k === 'name' ? 1 : -1 };
+      renderPfTable();
+    }));
+    if (PF_SORT.key){
+      rows = [...rows].sort((a, b) => {
+        let av = psv(a, PF_SORT.key), bv = psv(b, PF_SORT.key);
+        const an = av === null || av === undefined, bn = bv === null || bv === undefined;
+        if (an || bn) return an && bn ? 0 : an ? 1 : -1;
+        if (typeof av === 'string') return PF_SORT.dir * String(av).localeCompare(String(bv));
+        return PF_SORT.dir * (av - bv);
+      });
+    }
     let totV = 0, totVAll = true, totP = 0, matched = 0;
     const body = rows.map(p => {
       const our = pfMap(p.t212);
