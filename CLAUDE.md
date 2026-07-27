@@ -493,6 +493,12 @@ edit: extract `<script>` contents, `node --check` them, then republish via
 - **Sector peers table**: detail card shows the 4 largest same-sector peers
   + self (highlighted) with mktcap/P/E/div/combined; rows navigate via a
   delegated `[data-peer]` click handler; hidden when <2 peers or no sector.
+  **Mobile-CSS scoping trap (fixed 2026-07-27)**: the mobile rules that hide
+  the main table's Rank column and pin its Ticker used unscoped
+  `tbody td:first-child`/`nth-child(2)` selectors — on phones they hid the
+  FIRST COLUMN of every other table (peer tickers, watchlist stars,
+  portfolio instruments). They're now scoped to `.table-scroll` — any new
+  main-table mobile rule must be too.
 - **Data-quality monitor**: refresh.py writes `data-quality.json` on
   claude/state each run (advisory, nothing auto-corrected): P/E ratio jumps
   >5x, currency flips, price jumps >±67% outside split-guard resyncs,

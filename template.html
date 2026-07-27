@@ -589,16 +589,19 @@
     .controls .chip { padding: 7px 11px; }
     #search { min-width: 0; flex: 1 1 140px; }
 
-    /* table: horizontal scroll with the ticker column pinned so identity survives the swipe */
+    /* MAIN table only: horizontal scroll with the ticker column pinned so
+       identity survives the swipe. Scoped to .table-scroll — unscoped
+       td:first-child here once hid the first column of EVERY other table on
+       mobile (peer table tickers, watchlist stars, portfolio instruments). */
     table { font-size: 12px; }
     thead th, tbody td { padding: 7px 8px; }
     .scroll-hint { display: block; }
-    thead th[data-key="rank"], tbody td:first-child { display: none; }
-    thead th[data-key="ticker"], tbody td:nth-child(2) {
+    thead th[data-key="rank"], .table-scroll tbody td:first-child { display: none; }
+    thead th[data-key="ticker"], .table-scroll tbody td:nth-child(2) {
       position: sticky; left: 0; background: var(--surface-1); z-index: 5;
       box-shadow: 1px 0 0 var(--gridline);
     }
-    tbody tr:hover td:nth-child(2) { background: var(--page); }
+    .table-scroll tbody tr:hover td:nth-child(2) { background: var(--page); }
 
     .watchlist-grid { grid-template-columns: 1fr; gap: 18px; }
     .earn-row { flex-wrap: wrap; }
