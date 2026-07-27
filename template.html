@@ -3871,6 +3871,11 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
   const resetPF = () => { PF = { data: null, loaded: false, busy: false, err: null, hist: null, histLoaded: false }; RULES.list = null; };
 
   const T212_SUFFIX = { l: '.L', d: '.DE', p: '.PA', a: '.AS' };
+  // share-class aliases: the universe tracks ONE line per company (GOOG over
+  // GOOGL, BRK-B over BRK-A), so a holding in the other class links to the
+  // tracked line's card — fundamentals are identical, price within ~0.5%.
+  // The row's own value/P&L still come from T212's numbers for the class held.
+  const PF_ALIAS = { GOOGL: 'GOOG', 'BRK.A': 'BRK-B', 'BRK.B': 'BRK-B' };
   let pfLookup = null;
   function pfMap(sym){
     if (!pfLookup){
@@ -3878,7 +3883,7 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
       DATA.forEach(d => { pfLookup[d.ticker.toUpperCase()] = d.ticker; if (d.adr) pfLookup[d.adr.toUpperCase()] = d.ticker; });
     }
     let m = /^([A-Za-z0-9.]+)_US_EQ$/.exec(sym || '');
-    if (m) return pfLookup[m[1].toUpperCase()] || null;
+    if (m){ const k = m[1].toUpperCase(); return pfLookup[k] || pfLookup[PF_ALIAS[k]] || null; }
     m = /^([A-Za-z0-9.]*[A-Z0-9.])([a-z])_EQ$/.exec(sym || '');
     if (m && T212_SUFFIX[m[2]]) return pfLookup[m[1].toUpperCase() + T212_SUFFIX[m[2]]] || null;
     m = /^([A-Za-z0-9.]+)_EQ$/.exec(sym || '');

@@ -597,7 +597,10 @@ edit: extract `<script>` contents, `node --check` them, then republish via
 - **Ticker mapping (best-effort, client-side in template.html `pfMap`)**:
   `XXX_US_EQ` → `XXX`; one trailing lowercase exchange letter before `_EQ`
   maps l→`.L`, d→`.DE`, p→`.PA`, a→`.AS`; matched against DATA tickers AND
-  `adr` fields; unmatched holdings render fine from T212's own numbers
+  `adr` fields; `PF_ALIAS` (2026-07-27) folds share classes into the tracked
+  line (GOOGL→GOOG, BRK.A/BRK.B→BRK-B) so e.g. a GOOGL holding links to the
+  GOOG card — do NOT add the other class to the universe instead (one line
+  per company by design); unmatched holdings render fine from T212's own numbers
   (they include currentPrice), just unlinked. Per-instrument prices are in
   the instrument's own currency (plain numbers in the UI); `ppl` and its
   total are in the ACCOUNT currency (symbol + header label from the
