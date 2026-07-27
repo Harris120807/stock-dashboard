@@ -306,6 +306,8 @@
   "SCCO",
   "REZI",
   "PS",
+  "GOOD",
+  "RGLD",
   "ASML.AS",
   "RO.SW",
   "ARM",
@@ -647,7 +649,9 @@
   "ALNY",
   "SCCO",
   "REZI",
-  "PS"
+  "PS",
+  "GOOD",
+  "RGLD"
  ],
  "europe": [
   {
@@ -1126,8 +1130,10 @@
   "UCG.MI"
  ],
  "added": [
+  "GOOD",
   "KMB",
   "PS",
+  "RGLD",
   "VMC"
  ],
  "dropped": [],
