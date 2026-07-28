@@ -127,6 +127,26 @@ a{color:var(--accent)}
       <div class="msg" id="statsMsg"></div>
       <div class="hint">Anonymous request counts from the API edge (page loads aren't counted directly — the <code>prices</code> route ≈ active viewers, polled every 45s per open tab). Counts are sampled estimates at high volume.</div>
     </div>
+
+    <div class="card">
+      <h2>Q5 pie (your T212 account)</h2>
+      <input id="pieKey" type="password" placeholder="T212 API key (Pies + Metadata permissions)" autocomplete="off" style="width:100%;box-sizing:border-box;margin-bottom:8px">
+      <input id="pieSecret" type="password" placeholder="Secret key (shown once at creation)" autocomplete="off" style="width:100%;box-sizing:border-box;margin-bottom:8px">
+      <div class="row">
+        <select id="pieCount">
+          <option value="10">Top 10</option>
+          <option value="20" selected>Top 20</option>
+          <option value="30">Top 30</option>
+          <option value="50">Top 50 (pie max)</option>
+        </select>
+        <button id="pieBtn">Create pie</button>
+      </div>
+      <div class="msg" id="pieMsg"></div>
+      <div class="hint">Builds an equal-weight pie of the current top-scored stocks in <b>your own</b> Trading 212 account,
+      named "ValueTally Q5 &lt;date&gt;". The pie is created <b>unfunded</b> — investing, auto-invest and rebalancing all stay
+      in the T212 app. The key is used for this one request and <b>never stored</b> — you can delete it in T212 straight
+      after. Owner tool only; user-facing execution stays off the table.</div>
+    </div>
     </div>
 
     <div>
@@ -180,26 +200,6 @@ a{color:var(--accent)}
       <div class="hint">One-off announcement to every verified user with alerts switched on. Two-step: the button first
       shows the recipient count, then a confirm actually sends. Uses the site-styled email shell with the standard
       unsubscribe link.</div>
-    </div>
-
-    <div class="card">
-      <h2>Q5 pie (your T212 account)</h2>
-      <input id="pieKey" type="password" placeholder="T212 API key (Pies + Metadata permissions)" autocomplete="off" style="width:100%;box-sizing:border-box;margin-bottom:8px">
-      <input id="pieSecret" type="password" placeholder="Secret key (shown once at creation)" autocomplete="off" style="width:100%;box-sizing:border-box;margin-bottom:8px">
-      <div class="row">
-        <select id="pieCount">
-          <option value="10">Top 10</option>
-          <option value="20" selected>Top 20</option>
-          <option value="30">Top 30</option>
-          <option value="50">Top 50 (pie max)</option>
-        </select>
-        <button id="pieBtn">Create pie</button>
-      </div>
-      <div class="msg" id="pieMsg"></div>
-      <div class="hint">Builds an equal-weight pie of the current top-scored stocks in <b>your own</b> Trading 212 account,
-      named "ValueTally Q5 &lt;date&gt;". The pie is created <b>unfunded</b> — investing, auto-invest and rebalancing all stay
-      in the T212 app. The key is used for this one request and <b>never stored</b> — you can delete it in T212 straight
-      after. Owner tool only; user-facing execution stays off the table.</div>
     </div>
     </div>
     </div>
