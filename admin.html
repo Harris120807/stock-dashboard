@@ -113,19 +113,19 @@ a{color:var(--accent)}
     <div class="cols">
     <div>
     <div class="card">
-      <h2>Traffic <span class="range" style="float:right"><button data-d="7" class="on">7d</button><button data-d="30">30d</button></span></h2>
-      <canvas id="chart"></canvas>
-      <table id="routeTbl"><thead><tr><th>Route</th><th class="num">Requests</th></tr></thead><tbody></tbody></table>
-      <div class="msg" id="statsMsg"></div>
-      <div class="hint">Anonymous request counts from the API edge (page loads aren't counted directly — the <code>prices</code> route ≈ active viewers, polled every 45s per open tab). Counts are sampled estimates at high volume.</div>
-    </div>
-
-    <div class="card">
       <h2>Pipeline health</h2>
       <table id="wfTbl"><thead><tr><th>Workflow</th><th>Last run</th><th class="num">Took</th></tr></thead><tbody></tbody></table>
       <div class="msg" id="wfMsg"></div>
       <div class="hint">Latest GitHub Actions run per workflow — a failure shows here before it shows up as stale data.
       The hourly job's scheduled runs often skip themselves on purpose (duplicate-slot dedup); that still counts as success.</div>
+    </div>
+
+    <div class="card">
+      <h2>Traffic <span class="range" style="float:right"><button data-d="7" class="on">7d</button><button data-d="30">30d</button></span></h2>
+      <canvas id="chart"></canvas>
+      <div style="max-height:250px;overflow-y:auto"><table id="routeTbl"><thead><tr><th>Route</th><th class="num">Requests</th></tr></thead><tbody></tbody></table></div>
+      <div class="msg" id="statsMsg"></div>
+      <div class="hint">Anonymous request counts from the API edge (page loads aren't counted directly — the <code>prices</code> route ≈ active viewers, polled every 45s per open tab). Counts are sampled estimates at high volume.</div>
     </div>
     </div>
 
