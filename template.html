@@ -2260,14 +2260,27 @@ renderHead();
 renderBody();
 
 // ---------- Top search & company detail card ----------
+// alternate symbols that should find a tracked line: share classes/renames
+// (GOOGL→GOOG, FB→META — the site tracks one line per company) plus each
+// European row's US ADR. Used by the top search AND the watchlist quick-add.
+const TICKER_ALIAS = { GOOGL: 'GOOG', FB: 'META', 'BRK.A': 'BRK-B', 'BRK.B': 'BRK-B' };
+const ALT_SYMS = {};   // our ticker -> [lowercase alternate symbols]
+DATA.forEach(d => {
+  ALT_SYMS[d.ticker] = d.adr && d.adr !== d.ticker ? [String(d.adr).toLowerCase()] : [];
+});
+Object.entries(TICKER_ALIAS).forEach(([alias, tgt]) => { if (ALT_SYMS[tgt]) ALT_SYMS[tgt].push(alias.toLowerCase()); });
+
 function matchStocks(query){
   const q = query.trim().toLowerCase();
   if (!q) return [];
   const scored = DATA.map(d => {
     const t = d.ticker.toLowerCase(), n = d.name.toLowerCase();
+    const alts = ALT_SYMS[d.ticker] || [];
     let score = -1;
     if (t === q) score = 100;
+    else if (alts.includes(q)) score = 95;
     else if (t.startsWith(q)) score = 90;
+    else if (alts.some(a => a.startsWith(q))) score = 85;
     else if (n.startsWith(q)) score = 80;
     else if (t.includes(q)) score = 60;
     else if (n.includes(q)) score = 50;
@@ -3743,7 +3756,8 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
     const draw = () => {
       const q = inp.value.trim().toUpperCase();
       if (q.length < 1){ close(); return; }
-      const hits = DATA.filter(d => d.ticker.toUpperCase().includes(q) || (d.adr && d.adr.toUpperCase().includes(q)) || d.name.toUpperCase().includes(q)).slice(0, 8);
+      const hits = DATA.filter(d => d.ticker.toUpperCase().includes(q) || (d.adr && d.adr.toUpperCase().includes(q))
+        || (ALT_SYMS[d.ticker] || []).some(a => a.toUpperCase().includes(q)) || d.name.toUpperCase().includes(q)).slice(0, 8);
       if (!hits.length){ close(); return; }
       box.innerHTML = '';
       hits.forEach(d => {

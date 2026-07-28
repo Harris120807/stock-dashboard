@@ -119,6 +119,14 @@ a{color:var(--accent)}
       <div class="msg" id="statsMsg"></div>
       <div class="hint">Anonymous request counts from the API edge (page loads aren't counted directly — the <code>prices</code> route ≈ active viewers, polled every 45s per open tab). Counts are sampled estimates at high volume.</div>
     </div>
+
+    <div class="card">
+      <h2>Pipeline health</h2>
+      <table id="wfTbl"><thead><tr><th>Workflow</th><th>Last run</th><th class="num">Took</th></tr></thead><tbody></tbody></table>
+      <div class="msg" id="wfMsg"></div>
+      <div class="hint">Latest GitHub Actions run per workflow — a failure shows here before it shows up as stale data.
+      The hourly job's scheduled runs often skip themselves on purpose (duplicate-slot dedup); that still counts as success.</div>
+    </div>
     </div>
 
     <div>
@@ -287,7 +295,42 @@ $('loginBtn').onclick = () => { KEY = $('keyIn').value.trim(); localStorage.setI
 $('keyIn').addEventListener('keydown', e => { if (e.key === 'Enter') $('loginBtn').click(); });
 $('logoutBtn').onclick = () => { localStorage.removeItem('vt-admin-key'); location.reload(); };
 
-function loadAll() { loadStatus(); loadConfig(); loadStats(); loadRequests(); loadUserStats(); loadDataQuality(); loadSecurity(); loadErrors(); }
+function loadAll() { loadStatus(); loadConfig(); loadStats(); loadRequests(); loadUserStats(); loadDataQuality(); loadSecurity(); loadErrors(); loadPipeline(); }
+
+async function loadPipeline() {
+  const NAMES = {
+    'hourly-refresh.yml': 'Hourly refresh', 'daily-analyst.yml': 'Daily analyst',
+    'weekly-universe.yml': 'Weekly universe', 'backtest.yml': 'Backtest',
+    'annual-benchmarks.yml': 'Annual benchmarks', 'add-tickers.yml': 'Add tickers',
+  };
+  try {
+    const d = await authFetch('/admin/pipeline').then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    const tb = $('wfTbl').querySelector('tbody');
+    tb.innerHTML = '';
+    const ago = iso => {
+      const m = Math.round((Date.now() - Date.parse(iso)) / 60000);
+      return m < 60 ? m + ' min ago' : m < 2880 ? Math.round(m / 60) + 'h ago' : Math.round(m / 1440) + 'd ago';
+    };
+    for (const w of d.runs || []) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td></td><td></td><td class="num"></td>';
+      tr.children[0].textContent = NAMES[w.workflow] || w.workflow;
+      if (w.error) { tr.children[1].textContent = 'could not read (' + w.error + ')'; }
+      else if (w.none) { tr.children[1].textContent = 'never run'; }
+      else {
+        const running = w.status !== 'completed';
+        const ok = w.conclusion === 'success';
+        tr.children[1].textContent = (running ? '⏳ running' : (ok ? '✓ ' : '✗ ') + (w.conclusion || '?'))
+          + (w.startedAt ? ' · ' + ago(w.startedAt) : '');
+        tr.children[1].style.color = running ? '' : ok ? 'var(--good)' : 'var(--bad)';
+        tr.children[2].textContent = w.durationSec != null
+          ? (w.durationSec < 90 ? w.durationSec + 's' : Math.round(w.durationSec / 60) + ' min') : '';
+      }
+      tb.appendChild(tr);
+    }
+    $('wfMsg').textContent = '';
+  } catch (e) { $('wfMsg').textContent = 'Could not load workflow runs.'; $('wfMsg').className = 'msg err'; }
+}
 
 async function loadErrors() {
   const el = $('errLine');

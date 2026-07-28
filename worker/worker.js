@@ -378,6 +378,31 @@ async function handleAdmin(route, req, env, ctx) {
     return json({ ok: true, sent, recipients: users.length }, 200, 0);
   }
 
+  if (route === 'admin/pipeline' && req.method === 'GET') {
+    // last GitHub Actions run per workflow — surfaces a failing job BEFORE it
+    // shows up as stale data. Read via the same Actions-scoped PAT that
+    // dispatches runs.
+    if (!env.GH_TOKEN) return json({ error: 'not configured' }, 503, 0);
+    const WFS = ['hourly-refresh.yml', 'daily-analyst.yml', 'weekly-universe.yml', 'backtest.yml', 'annual-benchmarks.yml', 'add-tickers.yml'];
+    const runs = [];
+    for (const wf of WFS) {
+      try {
+        const r = await fetch(`https://api.github.com/repos/${GH_REPO}/actions/workflows/${wf}/runs?per_page=1`, {
+          headers: { 'Authorization': 'Bearer ' + env.GH_TOKEN, 'Accept': 'application/vnd.github+json', 'User-Agent': 'valuetally-admin' },
+        });
+        if (!r.ok) { runs.push({ workflow: wf, error: 'github ' + r.status }); continue; }
+        const run = ((await r.json()).workflow_runs || [])[0];
+        runs.push(run ? {
+          workflow: wf, status: run.status, conclusion: run.conclusion,
+          startedAt: run.run_started_at, updatedAt: run.updated_at,
+          durationSec: (run.run_started_at && run.updated_at && run.status === 'completed')
+            ? Math.max(0, Math.round((Date.parse(run.updated_at) - Date.parse(run.run_started_at)) / 1000)) : null,
+        } : { workflow: wf, none: true });
+      } catch (e) { runs.push({ workflow: wf, error: 'unreachable' }); }
+    }
+    return json({ runs }, 200, 0);
+  }
+
   if (route === 'admin/t212-pie' && req.method === 'POST') {
     // Owner-only personal automation (2026-07-27): build an equal-weight pie
     // of the current top-N stocks by combined score in the OWNER'S OWN T212
@@ -1157,6 +1182,9 @@ async function sendDigests(env, ctx) {
       // combinedScore is ~0-100 with ~5 pts of routine daily churn — only a
       // top-decile move (>=15) counts as an alert-worthy event
       if (sd !== null && Math.abs(sd) >= 15) notes.push('score ' + (sd > 0 ? 'up' : 'down') + ' ' + Math.abs(sd).toFixed(1) + ' vs yesterday');
+      // refresh.py's plain-English "since yesterday" line (SMA crossings, RSI
+      // zone moves…) rides along in last-data — makes the email self-explanatory
+      if (notes.length && d.changeNote) notes.push(String(d.changeNote));
       if (notes.length) events.push({ d, notes });
     }
     // custom rules: one-shot threshold crossings on today's snapshot

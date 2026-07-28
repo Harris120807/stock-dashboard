@@ -487,6 +487,13 @@ for d in records:
 
 records.sort(key=lambda d: (d["combinedScore"] is None, -(d["combinedScore"] or 0)))
 
+# combined-score quintile (Q5 = top fifth), rank-based over the scored pool —
+# same buckets the template's computeQuintiles draws and backtest.py ranks by.
+# Stored daily in the shards ("vq") so time-in-quintile history accumulates.
+_scored_n = sum(1 for d in records if d["combinedScore"] is not None)
+for _i, d in enumerate(records):
+    d["quintile"] = (5 - min(4, _i * 5 // _scored_n)) if (d["combinedScore"] is not None and _scored_n) else None
+
 # ---------- movement vs previous refresh (top-movers section + table arrows) ----------
 prior_scores = {t: num(r.get("combinedScore")) for t, r in prior_data.items()}
 prior_ranked = sorted((t for t, s in prior_scores.items() if s is not None), key=lambda t: -prior_scores[t])
@@ -735,16 +742,20 @@ for d in records:
     # time" charts have a series to draw. Same cadence as the score series, so
     # this adds no extra shard writes; in-place refreshes of today's values
     # are not durable on their own (matches the close behavior above).
-    for _k in ("vt", "vpe", "vev", "vdy"):
+    for _k in ("vt", "vpe", "vev", "vdy", "vq"):
         e.setdefault(_k, [])
+        # series added later than vt (e.g. vq, 2026-07-28) get None-padded so
+        # every v* array stays aligned with the vt daynums
+        if _k != "vt" and len(e[_k]) < len(e["vt"]):
+            e[_k] = [None] * (len(e["vt"]) - len(e[_k])) + e[_k]
     _r2 = lambda v: round(v, 2) if isinstance(v, (int, float)) else None
-    _vals = (_r2(d.get("pe")), _r2(d.get("evEbitda")), _r2(d.get("divYield")))
+    _vals = (_r2(d.get("pe")), _r2(d.get("evEbitda")), _r2(d.get("divYield")), d.get("quintile"))
     if not e["vt"] or e["vt"][-1] != today_dn:
         e["vt"].append(today_dn)
-        e["vpe"].append(_vals[0]); e["vev"].append(_vals[1]); e["vdy"].append(_vals[2])
+        e["vpe"].append(_vals[0]); e["vev"].append(_vals[1]); e["vdy"].append(_vals[2]); e["vq"].append(_vals[3])
         dirty = True
     else:
-        e["vpe"][-1], e["vev"][-1], e["vdy"][-1] = _vals
+        e["vpe"][-1], e["vev"][-1], e["vdy"][-1], e["vq"][-1] = _vals
     if dirty:
         json.dump(e, open(f"{STATE}/history/{d['ticker'].replace('/', '_')}.json", "w"), separators=(",", ":"))
         lh_written += 1

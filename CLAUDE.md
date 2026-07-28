@@ -620,6 +620,20 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   Gate "Accounts & privacy" paragraph now covers the broker key — keep it
   honest. The demo env is labeled "practice account" in the UI.
 
+## 2026-07-28 batch (quintile history / digest notes / alias search / pipeline health)
+
+- **Alias-aware search**: `TICKER_ALIAS` (GOOGL→GOOG, FB→META, BRK.A/B→
+  BRK-B) + `ALT_SYMS` (per-ticker list incl. each EU row's ADR) at template
+  top level — the top search AND the watchlist quick-add match them
+  (alias/ADR exact ranks between ticker-exact and ticker-prefix). THREE
+  alias maps now exist by design (search TICKER_ALIAS, portfolio PF_ALIAS,
+  admin REQ_ALIAS) — add new share-class/rename cases to all three.
+- **Admin Pipeline health**: `GET /admin/pipeline` (Worker, via the same
+  Actions PAT) returns the last run per workflow (status/conclusion/
+  started/duration); admin card under Traffic renders ✓/✗/⏳ + age + took.
+  Hourly scheduled runs that dedup-skip still conclude success — the card
+  says so.
+
 ## Owner Q5 pie builder (2026-07-27, owner-requested)
 
 - **POST /admin/t212-pie** {key, secret, count≤50} + "Q5 pie" card on the
@@ -671,7 +685,12 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   and the Worker's rule evaluation read slim/last-data, not detail-data.
 - **Daily valuation history (2026-07-27)**: shards gain `vt/vpe/vev/vdy`
   (daynum + P/E + EV/EBITDA + divYield, 2dp, one point per UTC day, never
-  pruned) appended in refresh.py's shard loop — same cadence as the score
+  pruned) **+ `vq` (daily quintile, 2026-07-28)** appended in refresh.py's
+  shard loop — refresh.py now computes `d["quintile"]` server-side
+  (rank-based fifths over the scored pool, Q5 = top, same buckets as the
+  template/backtest; in slim + last-data too). Series added later than vt
+  are None-padded to stay aligned with the vt daynums — keep that pattern
+  for any future v* series — same cadence as the score
   series so NO extra git churn. Purpose: accumulate data so future "P/E over
   time" charts are possible (none drawn yet — series only starts 2026-07-27).
   backfill_history.py deepen/main now write `{**old, "t": t, "p": p}` so the
@@ -689,7 +708,8 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   existing digest ("Your alerts" section, same alerts opt-in + unsub token).
   UI: "My alerts" card on the watchlist tab (add form + armed/fired table,
   re-arm/remove; RULES state reset inside resetPF so user switches can't
-  leak another user's rules).
+  leak another user's rules). Since 2026-07-28 digest event rows also carry
+  the stock's `changeNote` ("since yesterday" line) read from last-data.
 - **Portfolio value history**: D1 `portfolio_history(user_id, d, total,
   invested, ppl)` PK(user_id,d); `snapshotPortfolios` piggybacks the 20:30
   digest cron — ONE `/equity/account/cash` call per connected broker key,
