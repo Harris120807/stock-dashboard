@@ -289,6 +289,12 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   secrets; privileged calls send `Authorization: Bearer <ADMIN_KEY>`, which the
   Worker SHA-256-compares against Worker secret `ADMIN_KEY` (owner holds the
   key — handed over 2026-07-24; never commit it).
+- **Overview layout (2026-07-28)**: the two hand-balanced column divs were
+  replaced by ONE `.cols-flow` container (CSS multicol: `columns:2` ≥1000px,
+  cards `break-inside:avoid` + inline-block) — columns self-balance as card
+  contents grow; don't reintroduce fixed column divs. `.atabs` wraps on
+  narrow screens (the 5-tab strip overflowed phones); `#uTbl` sits in an
+  overflow-x wrapper (same mobile-table trap as the site's peer table).
 - **Layout (2026-07-24 evening; 4th tab 07-25)**: FOUR tabs — **Overview**
   (Status; then a two-column desktop grid ≥1000px in a 1240px container:
   Traffic | Run-pipelines + Kill-switches), **Requests** (visitor cards left,
