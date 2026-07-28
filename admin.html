@@ -173,6 +173,26 @@ a{color:var(--accent)}
       shows the recipient count, then a confirm actually sends. Uses the site-styled email shell with the standard
       unsubscribe link.</div>
     </div>
+
+    <div class="card">
+      <h2>Q5 pie (your T212 account)</h2>
+      <input id="pieKey" type="password" placeholder="T212 API key (Pies + Metadata permissions)" autocomplete="off" style="width:100%;box-sizing:border-box;margin-bottom:8px">
+      <input id="pieSecret" type="password" placeholder="Secret key (shown once at creation)" autocomplete="off" style="width:100%;box-sizing:border-box;margin-bottom:8px">
+      <div class="row">
+        <select id="pieCount">
+          <option value="10">Top 10</option>
+          <option value="20" selected>Top 20</option>
+          <option value="30">Top 30</option>
+          <option value="50">Top 50 (pie max)</option>
+        </select>
+        <button id="pieBtn">Create pie</button>
+      </div>
+      <div class="msg" id="pieMsg"></div>
+      <div class="hint">Builds an equal-weight pie of the current top-scored stocks in <b>your own</b> Trading 212 account,
+      named "ValueTally Q5 &lt;date&gt;". The pie is created <b>unfunded</b> — investing, auto-invest and rebalancing all stay
+      in the T212 app. The key is used for this one request and <b>never stored</b> — you can delete it in T212 straight
+      after. Owner tool only; user-facing execution stays off the table.</div>
+    </div>
     </div>
     </div>
     </div>
@@ -281,6 +301,26 @@ async function loadErrors() {
       : '') + '.';
   } catch (e) { el.textContent = 'Worker errors: could not load.'; }
 }
+
+$('pieBtn').onclick = async () => {
+  const key = $('pieKey').value.trim(), secret = $('pieSecret').value.trim(), count = $('pieCount').value;
+  const msg = $('pieMsg');
+  if (key.length < 10 || secret.length < 10) { msg.textContent = 'Paste the API key and its secret (generate one with Pies + Metadata ticked).'; msg.className = 'msg err'; return; }
+  if (!confirm('Create an unfunded "ValueTally Q5" pie with the top ' + count + ' stocks in YOUR Trading 212 account?')) return;
+  $('pieBtn').disabled = true;
+  msg.textContent = 'Mapping instruments and creating the pie…'; msg.className = 'msg';
+  try {
+    const d = await authFetch('/admin/t212-pie', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, secret, count: Number(count) }),
+    }).then(r => r.json());
+    if (!d.ok) throw new Error(d.error || 'pie creation failed');
+    msg.textContent = '✓ ' + d.name + ' created with ' + d.count + ' stocks. ' + (d.skipped && d.skipped.length ? 'Not on T212, skipped: ' + d.skipped.join(', ') + '. ' : '') + d.note;
+    msg.className = 'msg ok';
+    $('pieKey').value = ''; $('pieSecret').value = '';
+  } catch (e) { msg.textContent = 'Pie creation failed: ' + e.message; msg.className = 'msg err'; }
+  $('pieBtn').disabled = false;
+};
 
 $('bcBtn').onclick = async () => {
   const subject = $('bcSubject').value.trim(), body = $('bcBody').value.trim();

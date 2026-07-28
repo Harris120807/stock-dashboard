@@ -620,6 +620,27 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   Gate "Accounts & privacy" paragraph now covers the broker key — keep it
   honest. The demo env is labeled "practice account" in the UI.
 
+## Owner Q5 pie builder (2026-07-27, owner-requested)
+
+- **POST /admin/t212-pie** {key, secret, count≤50} + "Q5 pie" card on the
+  admin Overview: builds an equal-weight UNFUNDED pie ("ValueTally Q5
+  <date>") of the top-N stocks by combined score in the OWNER'S OWN T212
+  account. The pies-write credential is **per-request only — never stored,
+  never logged** (standing rule: write-capable broker keys must not sit at
+  rest anywhere; the stored /me/t212 keys stay read-only). Mapping goes
+  through T212's own metadata instrument list (key needs Pies + Metadata
+  permissions; live tried first, then demo); unmappable tickers are skipped
+  and reported; weights are 4dp summing to exactly 1. secLog kind
+  `admin_pie`. Funding/auto-invest/rebalance stay in the T212 app.
+  **User-facing execution was evaluated and REJECTED (2026-07-27)**: FCA
+  advising/arranging exposure + custody risk of write-capable user keys
+  (pie-weight edits redirect auto-invest money) + contradicts the site's
+  not-advice stance. Don't resurrect it as a user feature; the discussed
+  safe alternatives are a manual order-plan/pie-recipe page, practice-account
+  pies, and virtual portfolios (none built yet). Also do NOT publish a T212
+  pie share-link of the picks — same advice+execution shape via T212's
+  social feature.
+
 ## Admin accounts list / score quintiles (2026-07-26 late)
 
 - **Admin Accounts tab** (5th admin tab, owner-requested): `GET /admin/users`

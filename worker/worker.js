@@ -30,6 +30,8 @@
 //   GET  /admin/errors      -> Worker route-error log (24h count + recent rows)
 //   POST /admin/broadcast   -> announcement email to opted-in users
 //                              (two-step: confirm:false = recipient count only)
+//   POST /admin/t212-pie    -> build the top-N Q5 pie in the OWNER'S OWN T212
+//                              account (pies-write key per-request, never stored)
 // Trading 212 portfolio import (2026-07-26, signed-in only, no-store):
 //   POST /me/t212        -> validate + encrypt-store a READ-ONLY T212 key
 //   POST /me/t212/delete -> disconnect (row + caches + value history wiped)
@@ -374,6 +376,79 @@ async function handleAdmin(route, req, env, ctx) {
     }
     secLog(env, ctx, 'broadcast', 'sent ' + sent + '/' + users.length, req);
     return json({ ok: true, sent, recipients: users.length }, 200, 0);
+  }
+
+  if (route === 'admin/t212-pie' && req.method === 'POST') {
+    // Owner-only personal automation (2026-07-27): build an equal-weight pie
+    // of the current top-N stocks by combined score in the OWNER'S OWN T212
+    // account. The pies-write key is used for THIS ONE REQUEST and never
+    // stored or logged — write-capable broker keys must not sit at rest
+    // anywhere (deliberately unlike the read-only /me/t212 flow). The pie is
+    // created UNFUNDED: investing, auto-invest and rebalancing all happen
+    // inside the T212 app. T212 pies hold at most 50 instruments.
+    let body;
+    try { body = await req.json(); } catch (e) { return json({ error: 'bad json' }, 400, 0); }
+    const apiKey = String(body.key || '').trim(), secret = String(body.secret || '').trim();
+    const count = Math.min(50, Math.max(2, Number(body.count) || 20));
+    if (!/^\S{10,300}$/.test(apiKey) || !/^\S{10,300}$/.test(secret)) {
+      return json({ error: 'paste both the T212 API key and its secret' }, 400, 0);
+    }
+    const cred = apiKey + ':' + secret;
+    const r = await fetch(STATE_RAW + 'last-data.json');
+    if (!r.ok) return json({ error: 'score data unavailable right now' }, 503, 0);
+    const ranked = (await r.json()).filter(d => typeof d.combinedScore === 'number')
+      .sort((a, b) => b.combinedScore - a.combinedScore).slice(0, count);
+    // find the env the key works in + the tradeable-instrument list (needs the
+    // metadata permission; same endpoint the portfolio import already uses)
+    let envName = null, instruments = null;
+    for (const e of ['live', 'demo']) {
+      try {
+        const m = await t212Fetch(e, '/equity/metadata/instruments', cred);
+        if (m.ok) { envName = e; instruments = await m.json(); break; }
+      } catch (e2) { /* try next env */ }
+    }
+    if (!instruments) return json({ error: 'Trading 212 rejected the key on live and demo — it needs the Pies and Metadata permissions ticked' }, 502, 0);
+    const valid = new Set(instruments.map(x => x.ticker));
+    const SUF = { '.L': 'l', '.DE': 'd', '.PA': 'p', '.AS': 'a' };
+    const resolve = d => {
+      const t = d.ticker, cands = [];
+      const dot = t.lastIndexOf('.');
+      if (dot === -1) {
+        for (const v of new Set([t, t.replace(/-/g, '.'), t.replace(/-/g, '_'), t.replace(/-/g, '')])) cands.push(v + '_US_EQ');
+      } else {
+        const suf = SUF[t.slice(dot)];
+        if (suf) cands.push(t.slice(0, dot) + suf + '_EQ');
+      }
+      if (d.adr) cands.push(String(d.adr).toUpperCase() + '_US_EQ');
+      return cands.find(c => valid.has(c)) || null;
+    };
+    const picked = [], skipped = [];
+    for (const d of ranked) {
+      const t212t = resolve(d);
+      if (t212t) picked.push({ our: d.ticker, t212: t212t }); else skipped.push(d.ticker);
+    }
+    if (picked.length < 2) return json({ error: 'could not map enough top-scored tickers to T212 instruments', skipped }, 502, 0);
+    // equal weights that sum to exactly 1 (T212 requires it) — 4dp, remainder
+    // absorbed by the last instrument
+    const w = Math.floor(10000 / picked.length) / 10000;
+    const shares = {};
+    picked.forEach((p, i) => {
+      shares[p.t212] = i === picked.length - 1 ? Math.round((1 - w * (picked.length - 1)) * 10000) / 10000 : w;
+    });
+    const name = 'ValueTally Q5 ' + new Date().toISOString().slice(0, 10);
+    const cr = await fetch(T212_BASE[envName] + '/equity/pies', {
+      method: 'POST',
+      headers: { 'Authorization': 'Basic ' + btoa(cred), 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ name, dividendCashAction: 'REINVEST', instrumentShares: shares }),
+    });
+    if (!cr.ok) {
+      const detail = (await cr.text()).slice(0, 180);
+      return json({ error: 'T212 pie create failed (' + cr.status + '): ' + detail }, 502, 0);
+    }
+    secLog(env, ctx, 'admin_pie', 'created ' + name + ' (' + picked.length + ' instruments, ' + envName + ')', req);
+    return json({ ok: true, name, env: envName, count: picked.length,
+      instruments: picked.map(p => p.our), skipped,
+      note: 'Pie created UNFUNDED in your ' + (envName === 'demo' ? 'practice' : 'live') + ' account — open Pies in the T212 app to fund it. The key was not stored; you can delete it in T212 now.' }, 200, 0);
   }
 
   if (route === 'admin/deadman-check' && req.method === 'GET') {
