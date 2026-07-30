@@ -216,6 +216,12 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   (`scoreNarrative`) from scoreBreakdown — e.g. "Cheap vs sector peers". Keep its
   wording consistent with the scoring version.
 - **Biggest Mover card** on #overview click-throughs to the stock's detail card.
+- **Overview de-clutter (2026-07-28, owner-chosen)**: the "Average Value
+  Score by Sector" bars card was RETIRED (Sectors tab covers it; a link line
+  `.ov-secs-link` replaced it — don't re-add the bars), and both earnings
+  cards are collapsed-by-default: headline carries the count ("N stocks
+  report in the next week"), body expands on tap (`wireEarnToggle`,
+  `#earnHead`/`#earnBody` + recent equivalents).
 - **Scatter (2026-07-24 overhaul)**: colorGroup = top-**12** sectors (refresh.py
   `most_common(12)`), colors assigned dynamically (`assignSectorColors()`:
   PREFERRED_COLOR pins the 9 legacy sector→series mappings, remaining series

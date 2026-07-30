@@ -541,6 +541,15 @@
   .earn-card .ec-corner { position: absolute; right: 12px; bottom: 10px; text-align: right; font-size: 11px; color: var(--text-secondary); line-height: 1.55; }
   .earn-card .ec-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--page); margin-top: 3px; }
   .earn-empty { font-size: 12px; color: var(--text-muted); padding: 8px 4px; }
+  /* collapsed earnings headers (2026-07-28): headline + count, tap to expand */
+  .earn-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; text-align: left; }
+  .earn-head .earn-count { color: var(--text-muted); font-weight: 400; font-size: 13px; }
+  .earn-chev { color: var(--text-muted); font-size: 13px; transition: transform .15s; }
+  .earn-head[aria-expanded="true"] .earn-chev { transform: rotate(180deg); }
+  .earn-head + div:not([hidden]) { margin-top: 10px; }
+  .ov-secs-link { text-align: center; margin: 2px 0 14px; font-size: 13px; }
+  .ov-secs-link a { color: var(--accent); text-decoration: none; font-weight: 600; }
+  .ov-secs-link a:hover { text-decoration: underline; }
 
   .tech-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 16px; }
   @media (max-width: 900px) { .tech-grid { grid-template-columns: repeat(3, 1fr); } }
@@ -820,22 +829,28 @@
     </div>
 
     <div class="card" style="margin-bottom:16px;">
-      <div class="section-title">Upcoming Earnings (next week)</div>
-      <div class="section-sub">Consensus analyst estimates and historical beat/miss record — factual data only, no predicted results.</div>
-      <div id="earningsList"></div>
+      <button class="earn-head" id="earnHead" type="button" aria-expanded="false">
+        <span class="section-title" style="margin:0" id="earnHeadLabel">Upcoming earnings</span>
+        <span class="earn-chev">▾</span>
+      </button>
+      <div id="earnBody" hidden>
+        <div class="section-sub">Consensus analyst estimates and historical beat/miss record — factual data only, no predicted results.</div>
+        <div id="earningsList"></div>
+      </div>
     </div>
 
     <div class="card" style="margin-bottom:16px;">
-      <div class="section-title">Recent Earnings (past week)</div>
-      <div class="section-sub">Reported results vs. the consensus estimate at announcement — factual data only.</div>
-      <div id="recentEarningsList"></div>
+      <button class="earn-head" id="recentEarnHead" type="button" aria-expanded="false">
+        <span class="section-title" style="margin:0" id="recentEarnHeadLabel">Recent earnings</span>
+        <span class="earn-chev">▾</span>
+      </button>
+      <div id="recentEarnBody" hidden>
+        <div class="section-sub">Reported results vs. the consensus estimate at announcement — factual data only.</div>
+        <div id="recentEarningsList"></div>
+      </div>
     </div>
 
-    <div class="card" style="margin-bottom:16px;">
-      <div class="section-title">Average Value Score by Sector</div>
-      <div class="section-sub">Higher = sector trades cheaper on average across P/E, PEG, P/B and EV/EBITDA within this peer set.</div>
-      <div id="sectorBars"></div>
-    </div>
+    <div class="ov-secs-link"><a href="#sectors">Per-sector medians, movers and members live on the Sectors tab →</a></div>
 
     </main>
 
@@ -1789,24 +1804,8 @@ window.addEventListener('resize', () => {
 });
 
 // ---------- Sector bars ----------
-(function sectorBars(){
-  const bySector = {};
-  DATA.forEach(d => {
-    if (!bySector[d.sector]) bySector[d.sector] = { vals: [], colorGroup: d.colorGroup };
-    bySector[d.sector].vals.push(d.valueScore);
-  });
-  const avg = Object.entries(bySector).map(([sector, o]) => ({
-    sector, colorGroup: o.colorGroup, avg: o.vals.reduce((a,b)=>a+b,0)/o.vals.length, n: o.vals.length
-  })).sort((a,b)=>b.avg-a.avg);
-
-  const el = document.getElementById('sectorBars');
-  el.innerHTML = avg.map(s => `
-    <div class="sector-row">
-      <div class="sname">${s.sector} <span style="color:var(--text-muted)">(${s.n})</span></div>
-      <div class="strack"><div class="sfill" style="width:${s.avg}%; background:${sectorColor(s.colorGroup)}"></div></div>
-      <div class="sval">${fmtNum(s.avg)}</div>
-    </div>`).join('');
-})();
+// (the "Average Value Score by Sector" bars were retired 2026-07-28 — the
+// Sectors tab covers per-sector stats properly; a link line replaced the card)
 
 // ---------- Buy/Sell watchlist ----------
 function renderWatchlist(){
@@ -1849,6 +1848,17 @@ function earnCard(d, dateHtml, cornerHtml){
 function hookEarnCards(list){
   list.querySelectorAll('.earn-card').forEach(c => c.addEventListener('click', () => selectStock(c.getAttribute('data-ticker'))));
 }
+// collapsed-by-default earnings cards: the headline carries the count, the
+// body expands on tap (overview de-clutter, 2026-07-28)
+function wireEarnToggle(headId, bodyId){
+  const head = document.getElementById(headId), body = document.getElementById(bodyId);
+  if (!head || head._wired) return;
+  head._wired = true;
+  head.addEventListener('click', () => {
+    body.hidden = !body.hidden;
+    head.setAttribute('aria-expanded', String(!body.hidden));
+  });
+}
 function renderEarnings(){
   const today = isoDaysFromNow(0), horizon = isoDaysFromNow(7);
   const upcoming = DATA.filter(d => d.earnings && d.earnings.nextDate && d.earnings.nextDate >= today && d.earnings.nextDate <= horizon
@@ -1856,6 +1866,11 @@ function renderEarnings(){
       // prefetch not yet rerun) belongs in Recent, not Upcoming
       && !(d.earnings.recent && d.earnings.recent.date === d.earnings.nextDate))
     .sort((a,b) => a.earnings.nextDate.localeCompare(b.earnings.nextDate));
+  wireEarnToggle('earnHead', 'earnBody');
+  const lbl = document.getElementById('earnHeadLabel');
+  if (lbl) lbl.innerHTML = upcoming.length
+    ? `Upcoming earnings <span class="earn-count">— ${upcoming.length} stock${upcoming.length === 1 ? '' : 's'} report${upcoming.length === 1 ? 's' : ''} in the next week</span>`
+    : `Upcoming earnings <span class="earn-count">— none scheduled in the next week</span>`;
   const list = document.getElementById('earningsList');
   if (!upcoming.length){
     list.innerHTML = `<div class="earn-empty">No earnings reports scheduled in the next week for this set.</div>`;
@@ -1884,6 +1899,11 @@ function renderRecentEarnings(){
     const r = d.earnings && d.earnings.recent;
     return r && r.date && r.epsActual !== null && r.epsActual !== undefined && r.date >= weekAgo && r.date <= today;
   }).sort((a,b) => b.earnings.recent.date.localeCompare(a.earnings.recent.date));
+  wireEarnToggle('recentEarnHead', 'recentEarnBody');
+  const lbl = document.getElementById('recentEarnHeadLabel');
+  if (lbl) lbl.innerHTML = reported.length
+    ? `Recent earnings <span class="earn-count">— ${reported.length} reported in the past week</span>`
+    : `Recent earnings <span class="earn-count">— none reported in the past week</span>`;
   if (!reported.length){
     list.innerHTML = `<div class="earn-empty">No results announced in the past week for this set.</div>`;
     return;
