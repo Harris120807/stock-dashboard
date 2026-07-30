@@ -634,6 +634,34 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   Gate "Accounts & privacy" paragraph now covers the broker key — keep it
   honest. The demo env is labeled "practice account" in the UI.
 
+## Options-implied metrics (2026-07-28, owner-approved after discussion)
+
+- **Decision frame**: options as a PRODUCT (calculators, chains, strategy
+  suggestions) was evaluated and REJECTED — advice-adjacent and off-brand.
+  What shipped is options as a DATA SOURCE: per-stock factual numbers,
+  deliberately NOT inputs to any score (score credibility rests on the
+  accruing track record — don't change scoring inputs casually).
+- **daily_analyst.py**: `fetch_opt(sym)` (Yahoo v7 options chain, same
+  cookie+crumb opener as targets; US-listed symbol — the ADR for EU rows;
+  RHHBY-style no-options names stay None). Nearest expiry <7 days out
+  (megacap weeklies — an expiring AAPL weekly showed 52% "IV" vs ~24% real)
+  triggers ONE refetch of the first expiry ≥7d via `?date=`. Stores
+  `opt: {iv (ATM call/put mean IV %), em (± straddle-mid/spot % by expiry),
+  exp}` in analyst-state; carried forward on failure; guards iv∈(1,500)%,
+  em∈(0,50)%.
+- **refresh.py**: merges `opt` → `iv`/`expMove`/`optExp` (DETAIL fields, NOT
+  slim; entries with a passed expiry are dropped — blank beats stale); daily
+  `viv` series in the shards (same padded-v* pattern) so IV RANK becomes
+  possible once history accrues (not built yet).
+- **template**: "Implied vol" tile in the tech grid + an IV-vs-realized
+  sentence under it ("options price the next few weeks at X% vs Y%
+  realized — expecting choppier/calmer/in-line"); earnings section gains
+  "options price a move of about ±X% by <expiry>" when the report date is
+  on or before the straddle expiry. All wording = factual range, never
+  direction. mergeDetail copies iv/expMove/optExp with null-clearing.
+- Derived options fields stay OFF the public /api (same rule as other
+  vendor-derived data).
+
 ## 2026-07-28 batch (quintile history / digest notes / alias search / pipeline health)
 
 - **Alias-aware search**: `TICKER_ALIAS` (GOOGL→GOOG, FB→META, BRK.A/B→

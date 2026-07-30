@@ -2410,7 +2410,11 @@ function renderTechnicalSection(d){
       ${metricTile('Insiders (90d)', d.insiders ? `${d.insiders.b} buy${d.insiders.b === 1 ? '' : 's'} / ${d.insiders.s} sale${d.insiders.s === 1 ? '' : 's'}` : '—')}
       ${metricTile('Volatility (1y)', d.vol1y !== null && d.vol1y !== undefined ? fmtNum(d.vol1y, 1) + '%' : '—')}
       ${metricTile('Max drawdown (1y)', d.mdd1y !== null && d.mdd1y !== undefined ? fmtNum(d.mdd1y, 1) + '%' : '—')}
+      ${metricTile('Implied vol', d.iv !== null && d.iv !== undefined ? fmtNum(d.iv, 1) + '%' : '—')}
     </div>
+    ${(d.iv !== null && d.iv !== undefined && d.vol1y !== null && d.vol1y !== undefined)
+      ? `<div style="font-size:12px;color:var(--text-secondary);margin:-6px 0 16px;">The options market prices the next few weeks at ${fmtNum(d.iv, 1)}% annualized vs ${fmtNum(d.vol1y, 1)}% realized over the past year — ${d.iv > d.vol1y * 1.15 ? 'expecting choppier trading than the recent norm' : d.iv < d.vol1y * 0.85 ? 'expecting calmer trading than the recent norm' : 'roughly in line with recent history'}. Factual market data, not a forecast of direction.</div>`
+      : ''}
     ${(t.sma50 === null || t.sma50 === undefined || t.rsi14 === null || t.rsi14 === undefined)
       ? `<div style="font-size:12px;color:var(--text-secondary);margin:-6px 0 16px;">Blank indicators mean there isn't enough trading history yet — RSI needs 14 sessions, the trend averages 50 and 200. They fill in automatically as a newly listed stock trades.</div>`
       : ''}
@@ -2457,13 +2461,18 @@ function renderEarningsSection(d){
   const hourLabel = e.nextHour === 'bmo' ? 'before market open' : e.nextHour === 'amc' ? 'after market close' : '';
   const dIn = Math.round((new Date(e.nextDate + 'T12:00:00') - new Date(isoDaysFromNow(0) + 'T12:00:00')) / 86400000);
   const inLabel = dIn === 0 ? ' — today' : dIn > 0 ? ` — in ${dIn} day${dIn === 1 ? '' : 's'}` : '';
+  // options-implied expected move: shown when the report lands on or before
+  // the straddle's expiry (the straddle then mostly prices the event)
+  const emLine = (d.expMove !== null && d.expMove !== undefined && d.optExp && e.nextDate <= d.optExp)
+    ? ` The options market prices a move of about <b>±${fmtNum(d.expMove, 1)}%</b> by ${new Date(d.optExp + 'T12:00:00').toLocaleDateString(undefined, {month:'short', day:'numeric'})} — an expected range, not a direction.`
+    : '';
   return reportedHtml + `
     <div class="breakdown-title">Upcoming earnings</div>
     <div class="watch-note">
       Reports <b>${dateLabel}</b>${hourLabel ? ' ('+hourLabel+')' : ''}${inLabel}.
       ${e.epsEstimate!==null&&e.epsEstimate!==undefined ? `Consensus EPS estimate <b>$${fmtNum(e.epsEstimate,2)}</b>.` : ''}
       ${e.revenueEstimate!==null&&e.revenueEstimate!==undefined ? `Revenue estimate <b>${fmtB(e.revenueEstimate/1e9)}</b>.` : ''}
-      ${e.beatTotal ? `Beat estimates in <b>${e.beatCount}/${e.beatTotal}</b> of the last reported quarters.` : 'No historical beat/miss data available.'}
+      ${e.beatTotal ? `Beat estimates in <b>${e.beatCount}/${e.beatTotal}</b> of the last reported quarters.` : 'No historical beat/miss data available.'}${emLine}
       This is factual analyst-consensus data, not a predicted outcome.
     </div>
   `;
@@ -2729,6 +2738,8 @@ function fetchDetail(){
             if (det.adr) d.adr = det.adr;
             d.changeNote = det.changeNote || null; // absent = quiet day, clear it
             d.insiders = det.insiders || null;     // {b, s} open-market trades, 90d
+            // options-implied (absent = no listed options / stale expiry — clear)
+            d.iv = det.iv ?? null; d.expMove = det.expMove ?? null; d.optExp = det.optExp ?? null;
             d.earnings = Object.assign({}, d.earnings || {}, det.earnings || {});
           }
           d._detail = true;

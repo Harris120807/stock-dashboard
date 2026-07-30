@@ -238,6 +238,16 @@ def build_record(ticker, sym):
         if not (0.3 <= tgt / price <= 3): tgt = None
     d["target"] = round(tgt, 2) if tgt else TARGETS.get(ticker)
     d["upside"] = (d["target"] - price) / price * 100 if (d["target"] and price) else None
+    # options-implied metrics (2026-07-28, daily_analyst Yahoo chain fetch):
+    # iv = ATM implied vol %, expMove = ± straddle move % by optExp. Context
+    # only — deliberately NOT a scoring input. Carried entries whose expiry
+    # has passed are dropped (blank beats stale).
+    _o = (analyst.get(ticker) or {}).get("opt")
+    _today_iso = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+    if isinstance(_o, dict) and (_o.get("exp") or "") >= _today_iso:
+        d["iv"], d["expMove"], d["optExp"] = _o.get("iv"), _o.get("em"), _o.get("exp")
+    else:
+        d["iv"] = d["expMove"] = d["optExp"] = None
     # daily % change: latest-session move from the daily closes (Yahoo's 2y-range
     # meta carries no usable previousClose); Finnhub dp only on quote fallback
     d["dayChange"] = None
@@ -742,20 +752,20 @@ for d in records:
     # time" charts have a series to draw. Same cadence as the score series, so
     # this adds no extra shard writes; in-place refreshes of today's values
     # are not durable on their own (matches the close behavior above).
-    for _k in ("vt", "vpe", "vev", "vdy", "vq"):
+    for _k in ("vt", "vpe", "vev", "vdy", "vq", "viv"):
         e.setdefault(_k, [])
-        # series added later than vt (e.g. vq, 2026-07-28) get None-padded so
-        # every v* array stays aligned with the vt daynums
+        # series added later than vt (e.g. vq/viv) get None-padded so every
+        # v* array stays aligned with the vt daynums
         if _k != "vt" and len(e[_k]) < len(e["vt"]):
             e[_k] = [None] * (len(e["vt"]) - len(e[_k])) + e[_k]
     _r2 = lambda v: round(v, 2) if isinstance(v, (int, float)) else None
-    _vals = (_r2(d.get("pe")), _r2(d.get("evEbitda")), _r2(d.get("divYield")), d.get("quintile"))
+    _vals = (_r2(d.get("pe")), _r2(d.get("evEbitda")), _r2(d.get("divYield")), d.get("quintile"), d.get("iv"))
     if not e["vt"] or e["vt"][-1] != today_dn:
         e["vt"].append(today_dn)
-        e["vpe"].append(_vals[0]); e["vev"].append(_vals[1]); e["vdy"].append(_vals[2]); e["vq"].append(_vals[3])
+        e["vpe"].append(_vals[0]); e["vev"].append(_vals[1]); e["vdy"].append(_vals[2]); e["vq"].append(_vals[3]); e["viv"].append(_vals[4])
         dirty = True
     else:
-        e["vpe"][-1], e["vev"][-1], e["vdy"][-1], e["vq"][-1] = _vals
+        e["vpe"][-1], e["vev"][-1], e["vdy"][-1], e["vq"][-1], e["viv"][-1] = _vals
     if dirty:
         json.dump(e, open(f"{STATE}/history/{d['ticker'].replace('/', '_')}.json", "w"), separators=(",", ":"))
         lh_written += 1
@@ -765,7 +775,7 @@ for d in records:
 # fields); detail-only structures ship in detail-data.json next to index.html,
 # lazily fetched on first stock-card open. Contract with template.html
 # fetchDetail()/mergeDetail — the field list must match what the card renders.
-DETAIL_FIELDS = ("scoreBreakdown", "absBreakdown", "technicals", "dataSource", "adr", "changeNote", "insiders")
+DETAIL_FIELDS = ("scoreBreakdown", "absBreakdown", "technicals", "dataSource", "adr", "changeNote", "insiders", "iv", "expMove", "optExp")
 detail_by = {}
 slim_records = []
 for d in records:

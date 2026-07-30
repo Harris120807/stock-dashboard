@@ -202,6 +202,75 @@ for ticker, _sym in pairs:
         by[ticker]["target"] = tgt
 print(f"targets: {tgt_ok}/{len(pairs)} fetched live")
 
+# ---------- options-implied metrics (Yahoo options chain, 2026-07-28) ----------
+# Uses the US-LISTED symbol (native for US rows, the ADR for EU rows — many
+# ADRs carry listed options; the rest simply stay None). One default-chain
+# request per ticker; if the nearest expiry is <7 days out (megacap weeklies —
+# too spiky: an expiring AAPL weekly showed 52%+ "IV" vs ~24% real) the first
+# expiry >=7 days out is refetched via ?date=. Per ticker: opt = {iv (ATM
+# call/put mean, annualized %), em (± expected move % by expiry = straddle
+# mid / spot), exp "YYYY-MM-DD"}. Prior values carry forward on failure;
+# refresh.py drops entries whose expiry has passed.
+try:
+    prior_opt = {t: (v.get("opt") or None) for t, v in
+                 json.load(open(f"{STATE}/analyst-state.json")).get("byTicker", {}).items()}
+except Exception:
+    prior_opt = {}
+
+def _opt_mid(c):
+    b, a = c.get("bid"), c.get("ask")
+    if isinstance(b, (int, float)) and isinstance(a, (int, float)) and a >= b > 0:
+        return (a + b) / 2
+    lp = c.get("lastPrice")
+    return lp if isinstance(lp, (int, float)) and lp > 0 else None
+
+def fetch_opt(sym):
+    base = (f"https://query2.finance.yahoo.com/v7/finance/options/"
+            f"{urllib.parse.quote(sym)}?crumb={urllib.parse.quote(crumb)}")
+    j = json.loads(op.open(base, timeout=15).read().decode())["optionChain"]["result"][0]
+    spot = (j.get("quote") or {}).get("regularMarketPrice")
+    exps = j.get("expirationDates") or []
+    chain = (j.get("options") or [None])[0]
+    now_ts = time.time()
+    if chain and exps and chain["expirationDate"] - now_ts < 7 * 86400:
+        pick = next((e for e in exps if e - now_ts >= 7 * 86400), None)
+        if pick:
+            j = json.loads(op.open(base + f"&date={pick}", timeout=15).read().decode())["optionChain"]["result"][0]
+            chain = (j.get("options") or [None])[0]
+    if not (chain and isinstance(spot, (int, float)) and spot > 0):
+        return None
+    call_by = {c.get("strike"): c for c in chain.get("calls") or []}
+    put_by = {p.get("strike"): p for p in chain.get("puts") or []}
+    for k in sorted(set(call_by) & set(put_by), key=lambda s: abs(s - spot))[:3]:
+        c, p = call_by[k], put_by[k]
+        ivs = [x["impliedVolatility"] for x in (c, p)
+               if isinstance(x.get("impliedVolatility"), (int, float)) and 0.01 < x["impliedVolatility"] < 5]
+        if not ivs:
+            continue
+        cm, pm = _opt_mid(c), _opt_mid(p)
+        em = round((cm + pm) / spot * 100, 1) if (cm and pm) else None
+        if em is not None and not (0 < em < 50):
+            em = None
+        return {"iv": round(sum(ivs) / len(ivs) * 100, 1), "em": em,
+                "exp": datetime.datetime.fromtimestamp(chain["expirationDate"], datetime.timezone.utc).strftime("%Y-%m-%d")}
+    return None
+
+opt_ok = 0
+for ticker, sym in pairs:
+    o = prior_opt.get(ticker)
+    if op:
+        try:
+            got = fetch_opt(sym)
+            if got:
+                o = got
+                opt_ok += 1
+        except Exception:
+            pass
+        time.sleep(0.35)
+    if ticker in by and o:
+        by[ticker]["opt"] = o
+print(f"options: {opt_ok}/{len(pairs)} fetched live")
+
 state = {"updatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(), "byTicker": by}
 json.dump(state, open(f"{STATE}/analyst-state.json", "w"))
 
