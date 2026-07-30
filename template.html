@@ -319,6 +319,8 @@
   .sec-top { border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; font-size: 12px; }
   .sec-members { display: none; margin-top: 10px; border-top: 1px solid var(--border); padding-top: 6px; max-height: 320px; overflow-y: auto; }
   .sec-card.open .sec-members { display: block; }
+  .sec-more { grid-column: 1 / -1; padding: 12px; border: 1px dashed var(--border); border-radius: 12px; background: transparent; color: var(--accent); font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+  .sec-more:hover { border-color: var(--accent); }
   .sec-mrow { display: flex; justify-content: space-between; gap: 8px; padding: 5px 2px; font-size: 13px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
   .sec-mrow:hover { color: var(--accent); }
   .sec-mrow .mname { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
@@ -3510,6 +3512,9 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
   const grid = document.getElementById('secGrid');
   if (!grid) return;
   const median = a => { const v = a.filter(x => typeof x === 'number' && isFinite(x)).sort((x, y) => x - y); return v.length ? (v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2) : null; };
+  // ~38 true sectors make a long page — show the 12 largest by cap (same cut
+  // as the scatter's color groups) with a show-all expander
+  let showAllSecs = false;
   function render(){
     if (grid.closest('.view').offsetParent === null) return;
     const by = {};
@@ -3518,7 +3523,7 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
       .map(([name, m]) => ({ name, m, cap: m.reduce((a, d) => a + (d.marketCap || 0), 0) }))
       .sort((a, b) => b.cap - a.cap);
     grid.innerHTML = '';
-    secs.forEach(({ name, m, cap }) => {
+    (showAllSecs ? secs : secs.slice(0, 12)).forEach(({ name, m, cap }) => {
       const pe = median(m.map(d => d.pe));
       const cs = median(m.map(d => d.combinedScore));
       const moved = m.filter(d => typeof d.dayChange === 'number');
@@ -3546,6 +3551,13 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
       });
       grid.appendChild(card);
     });
+    if (!showAllSecs && secs.length > 12){
+      const btn = document.createElement('button');
+      btn.className = 'sec-more';
+      btn.textContent = `Show all ${secs.length} sectors (${secs.length - 12} smaller ones hidden)`;
+      btn.addEventListener('click', () => { showAllSecs = true; render(); });
+      grid.appendChild(btn);
+    }
   }
   document.addEventListener('viewchange', e => { if (e.detail === 'sectors') render(); });
   render();

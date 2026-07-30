@@ -404,7 +404,9 @@ edit: extract `<script>` contents, `node --check` them, then republish via
 - **Score history UI**: score overlay now on 30d/1Y/5Y detail charts; Compare's
   "Combined Score" metric supports the 1Y range = FULL daily score history from
   shards (short lines = tracking began July 2026).
-- **Sectors view**: `#sectors` tab (8 tabs now — icon-only labels <480px):
+- **Sectors view**: `#sectors` tab (8 tabs now — icon-only labels <480px;
+  since 2026-07-28 shows the 12 largest sectors by cap with a "Show all N
+  sectors" expander — ~38 cards made the page too long):
   per-sector cards (median P/E, median combined, avg day move, top-3 chips),
   click to expand full member list. Pure client-side from DATA.
 - **Backtest**: `scripts/backtest.py` (STATE_DIR) → `backtest.json` on
