@@ -870,6 +870,18 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   ~340 EDGAR submissions + ~15 NSM queries + only-new doc fetches (~2 min).
 - Coverage honesty (stated in the tab sub): continental EU rows are covered
   only through US ADR filings; UK Takeover Code flow only for .L rows.
+- **Event notes (2026-08-02, owner-requested)**: events carry `note` — a
+  description extracted from the filing itself so nobody has to open it:
+  13D/13D/A use the structured XML `transactionPurpose` (Item 4 prose); deal
+  forms + 8-Ks fetch the primary doc (capped 200KB read) and `snippet()`
+  picks the best deal-keyword sentence (scored: action phrases beat
+  annex cross-references; EDGAR/SGML header lines with .htm/.txt excluded);
+  NSM docs start after the repeated headline (kills the RNS-number header).
+  S-4s whose note reads "Notes due/aggregate principal" are RECLASSIFIED
+  DEBT-EXCHANGE (sig 35) — registered debt swaps are not M&A (AVGO/CMCSA
+  hit this). note ships through stakes-data.json; card shows it as an
+  italic quote, table as a muted second line. Passive 13G forms get no
+  note by design (cost, no story). Backfilled 351 events 2026-08-02.
 - **Financial-filer churn rule (2026-08-02, post-seed)**: outward 13G/13G/A
   from rows whose sector is Financial Services/Banking/Insurance/Asset
   Management are SKIPPED at ingest (BLK/GS/MS file 13Gs on their whole fund

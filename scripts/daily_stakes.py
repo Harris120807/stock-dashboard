@@ -71,12 +71,12 @@ NSM_EVENT_CODES = {
 NSM_OFFER_CODES = {"RET", "DCC", "FEE", "FEO", "FER"}  # Form 8.x dealing disclosures → offer-period flag
 
 
-def http(url, data=None, hdrs=None, timeout=25, retries=1):
+def http(url, data=None, hdrs=None, timeout=25, retries=1, cap=None):
     for att in range(retries + 1):
         try:
             req = urllib.request.Request(url, data=data, headers={"User-Agent": UA, **(hdrs or {})})
             with urllib.request.urlopen(req, timeout=timeout) as r:
-                return r.read()
+                return r.read(cap) if cap else r.read()
         except Exception:
             if att >= retries:
                 return None
@@ -105,9 +105,56 @@ def nsm_query(body):
 
 
 def flatten_html(raw):
+    raw = re.sub(r"(?is)<(style|script|head)[^>]*>.*?</\1>", " ", raw)
     t = re.sub(r"<[^>]+>", " ", raw)
-    t = t.replace("&amp;", "&").replace("&nbsp;", " ").replace("&#160;", " ")
+    t = htmllib.unescape(t)
     return re.sub(r"\s+", " ", t)
+
+
+DEAL_WORDS = re.compile(
+    r"\b(merger|acquisition|acquire[ds]?|business combination|tender offer|"
+    r"purchase agreement|definitive agreement|chapter 11|bankruptcy|"
+    r"reorganization|scheme of arrangement|take-?over|going.private|divest|"
+    r"combine[ds]? with|all.(?:cash|stock) (?:deal|transaction)|offer to exchange)", re.I)
+BOILER = re.compile(
+    r"(incorporated (?:herein )?by reference|as defined (?:below|herein)|"
+    r"securities and exchange commission|washington,? d\.?c|check the appropriate|"
+    r"pursuant to (?:section|rule) \d|commission file|cusip|table of contents|"
+    r"forward-looking statements)", re.I)
+
+
+def snippet(text, prefer_deal_words=True, limit=250):
+    """Best-effort one/two informative sentences out of a filing's text."""
+    if not text:
+        return None
+    text = re.sub(r"\s+", " ", text).strip()
+    sents = re.split(r"(?<=[.!?])\s+(?=[A-Z“\"(])", text)
+    # abbreviation splits ("Inc. (“Amazon”), Grapefruit…") leave fragments that
+    # start with a parenthetical — require a proper sentence opening
+    cands = [x.strip() for x in sents
+             if 40 <= len(x.strip()) <= 500 and not BOILER.search(x)
+             and re.match(r"^[A-Z“\"'0-9]", x.strip())
+             and ".htm" not in x and ".txt" not in x]  # SGML/EDGAR header lines
+    pick = None
+    if prefer_deal_words:
+        # prefer sentences that SAY what happened over cross-references to annexes
+        act = re.compile(r"(entered into|announce[ds]?|agreed to|approved|will acquire|"
+                         r"to acquire|acquisition of|merger of|combination of|offer (?:for|to)|"
+                         r"completed|has acquired|filed for)", re.I)
+        deref = re.compile(r"(copy of|attached as|annex|accompanying|more fully described|"
+                           r"you may|form of merger consideration|proration)", re.I)
+        best_s = -9
+        for x in cands:
+            if not DEAL_WORDS.search(x):
+                continue
+            sc = (2 if act.search(x) else 0) - (3 if deref.search(x) else 0)
+            if sc > best_s:
+                best_s, pick = sc, x
+    if pick is None:
+        pick = cands[0] if cands else None
+    if not pick:
+        return None
+    return (pick[:limit - 1] + "…") if len(pick) > limit else pick
 
 
 def sig_for(form, pct, delta, was_13g):
@@ -122,6 +169,8 @@ def sig_for(form, pct, delta, was_13g):
         return 80
     if form == "COMPLETED-ACQ":
         return 70
+    if form == "DEBT-EXCHANGE":
+        return 35
     if form == "CAPITAL-REORG":
         return 65
     if form in ("ACQUISITION", "DISPOSAL"):
@@ -162,9 +211,13 @@ def parse_13dg_xml(raw):
     rule = re.search(r"<designateRulePursuantThisScheduleFiled>(.*?)</designateRulePursuantThisScheduleFiled>", txt)
     icik = re.search(r"<issuerCik>0*(\d+)</issuerCik>", txt, re.I)
     inm = re.search(r"<issuerName>(.*?)</issuerName>", txt, re.S)
+    # 13D structured XML carries the Item 4 "purpose of transaction" prose —
+    # the single most descriptive field a stake filing has
+    purp = re.search(r"<transactionPurpose>(.*?)</transactionPurpose>", txt, re.S)
+    note = snippet(htmllib.unescape(purp.group(1))) if purp else None
     unesc = lambda v: htmllib.unescape(v.strip()) if v else None  # XML carries &amp; etc.
     return (unesc(best[0]), best[1], (rule.group(1).strip() if rule else None),
-            (int(icik.group(1)) if icik else None), unesc(inm.group(1) if inm else None))
+            (int(icik.group(1)) if icik else None), unesc(inm.group(1) if inm else None), note)
 
 
 def parse_tr1(raw):
@@ -292,19 +345,32 @@ def main():
             nodash = acc.replace("-", "")
             url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{nodash}/{docs[i]}" if docs[i] else \
                   f"https://www.sec.gov/Archives/edgar/data/{cik}/{nodash}/"
-            filer = pct = rule = subject = None
+            filer = pct = rule = subject = note = None
             outward = False
             if form in ("13D", "13D/A", "13G", "13G/A") and f.startswith("SCHEDULE") and docs_left > 0:
                 docs_left -= 1
                 time.sleep(0.13)
                 raw = http(f"https://www.sec.gov/Archives/edgar/data/{cik}/{nodash}/primary_doc.xml")
                 if raw:
-                    filer, pct, rule, icik, inm = parse_13dg_xml(raw)
+                    filer, pct, rule, icik, inm, note = parse_13dg_xml(raw)
                     xml_ok += 1
                     if icik and icik != cik:  # company is the FILER: stake in another firm
                         outward, subject = True, inm
                         if form in ("13G", "13G/A") and rowkey in fin_rows:
                             continue  # financial-sector portfolio churn
+            elif form not in ("13G", "13G/A") and docs[i] and docs_left > 0:
+                # deal forms + 8-K events: pull a descriptive sentence from the
+                # document itself so the feed says WHAT the deal is (capped read —
+                # S-4s run to megabytes, the deal is described up front)
+                docs_left -= 1
+                time.sleep(0.13)
+                raw = http(url, cap=200_000)
+                if raw:
+                    note = snippet(flatten_html(raw.decode("utf-8", "replace")))
+                # S-4s also register routine debt exchange offers — don't let
+                # refinancing masquerade as M&A in the feed
+                if form == "MERGER-REG" and note and re.search(r"notes due|aggregate principal amount|exchange.{0,40}notes", note, re.I):
+                    form = "DEBT-EXCHANGE"
             prev = next((e.get("pct") for e in ent["events"]
                          if e.get("filer") and filer and e["filer"].lower() == filer.lower()
                          and e.get("pct") is not None
@@ -317,7 +383,7 @@ def main():
                 for e in ent["events"])
             ev = {
                 "id": acc, "d": d, "src": "edgar", "form": form, "filer": filer,
-                "pct": pct, "prevPct": prev, "rule": rule,
+                "pct": pct, "prevPct": prev, "rule": rule, "note": note,
                 "sig": sig_for(form, pct, delta, was_13g), "url": url,
             }
             if outward:
@@ -379,17 +445,24 @@ def main():
             if eid in known:
                 continue
             url = "https://data.fca.org.uk/artefacts/" + s.get("download_link", "")
-            filer = pct = prev = None
-            if form == "TR-1" and docs_left > 0 and s.get("download_link"):
+            filer = pct = prev = note = None
+            if docs_left > 0 and s.get("download_link"):
                 docs_left -= 1
                 time.sleep(0.2)
-                raw = http(url)
-                if raw:
+                raw = http(url, cap=200_000)
+                if raw and form == "TR-1":
                     filer, pct, prev = parse_tr1(raw)
+                elif raw:
+                    _t = flatten_html(raw.decode("utf-8", "replace"))
+                    # RNS docs repeat the headline right before the body — cut
+                    # the NSM/RNS-number header boilerplate by starting there
+                    _hl = (s.get("headline") or "").strip()
+                    _i = _t.find(_hl) if _hl else -1
+                    note = snippet(_t[_i + len(_hl):] if _i >= 0 else _t)
             delta = (pct - prev) if (pct is not None and prev is not None) else None
             ent["events"].append({
                 "id": eid, "d": d, "src": "nsm", "form": form, "filer": filer,
-                "pct": pct, "prevPct": prev, "hl": (s.get("headline") or "")[:120],
+                "pct": pct, "prevPct": prev, "hl": (s.get("headline") or "")[:120], "note": note,
                 "sig": sig_for(form, pct, delta, False), "url": url,
             })
             ev_new += 1

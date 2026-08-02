@@ -333,6 +333,8 @@
   .sk-head a:hover { color: var(--accent); }
   .sk-date { font-size: 11.5px; color: var(--text-muted); white-space: nowrap; }
   .sk-line { font-size: 13.5px; margin: 4px 0 6px; color: var(--text-secondary); }
+  .sk-note { font-size: 12.5px; margin: -2px 0 7px; color: var(--text-muted); font-style: italic; }
+  .sk-tblnote { display: block; font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
   .sk-meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 11.5px; color: var(--text-muted); }
   .sk-tag { border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; }
   .sk-tag.new { color: var(--good); border-color: var(--good); font-weight: 600; }
@@ -3010,7 +3012,7 @@ function applyHash(){
   const DEAL_FORMS = new Set(['TENDER','TENDER/A','TENDER-SELF','TENDER-SELF/A','14D9','14D9/A',
     'GOING-PRIVATE','GOING-PRIVATE/A','OFFER-BY','OFFER-FOR','POSSIBLE-OFFER','OFFER-REJECTED',
     'OFFER-UPDATE','PANEL-STATEMENT','COMPULSORY-ACQ','TENDER-RESULT','MERGER-PROXY','MERGER-REG',
-    'MERGER-COMM','BANKRUPTCY','COMPLETED-ACQ','CAPITAL-REORG','ACQUISITION','DISPOSAL']);
+    'MERGER-COMM','BANKRUPTCY','COMPLETED-ACQ','CAPITAL-REORG','ACQUISITION','DISPOSAL','DEBT-EXCHANGE']);
   const DEAL_LABEL = {
     'TENDER':'Tender offer launched for the company (SC TO-T)',
     'TENDER/A':'Tender offer document amended',
@@ -3023,6 +3025,7 @@ function applyHash(){
     'MERGER-PROXY':'Merger proxy filed — shareholders to vote on a deal',
     'MERGER-REG':'Merger / share-exchange registration filed (S-4)',
     'MERGER-COMM':'Deal communication filed (Rule 425)',
+    'DEBT-EXCHANGE':'Registered debt-exchange offer (S-4) — refinancing, not M&A',
     'BANKRUPTCY':'Bankruptcy or receivership disclosed (8-K item 1.03)',
     'COMPLETED-ACQ':'Acquisition or disposal completed (8-K item 2.01)',
     'CAPITAL-REORG':'Capital reorganisation announced',
@@ -3070,6 +3073,7 @@ function applyHash(){
     return `<div class="sk-card ${cls}">
       <div class="sk-head">${link(e.t)}<span class="sk-date">${escHtml(e.d)}</span></div>
       <div class="sk-line">${escHtml(line(e))}${e.form !== 'TR-1' && e.hl && DEAL_FORMS.has(e.form) ? ' — ' + escHtml(e.hl) : ''}</div>
+      ${e.note ? `<div class="sk-note">“${escHtml(e.note)}”</div>` : ''}
       <div class="sk-meta">${isNew ? '<span class="sk-tag new">NEW</span>' : ''}<span class="sk-tag">${escHtml(tag)}</span>
         <span>${e.src === 'nsm' ? 'FCA / RNS' : 'SEC EDGAR'}</span>
         ${e.url ? `<a href="${escHtml(e.url)}" target="_blank" rel="noopener">Filing ↗</a>` : ''}</div>
@@ -3088,7 +3092,7 @@ function applyHash(){
     document.getElementById('skTbl').innerHTML =
       '<thead><tr><th>Date</th><th>Company</th><th>Event</th><th>%</th><th>Source</th></tr></thead><tbody>' +
       rows.map(e => `<tr><td style="white-space:nowrap">${escHtml(e.d)}</td><td style="white-space:nowrap">${link(e.t)}</td>
-        <td>${escHtml(line(e))}</td><td>${pctf(e.pct) || '—'}</td>
+        <td>${escHtml(line(e))}${e.note ? `<span class="sk-tblnote">${escHtml(e.note)}</span>` : ''}</td><td>${pctf(e.pct) || '—'}</td>
         <td>${e.url ? `<a href="${escHtml(e.url)}" target="_blank" rel="noopener">${e.src === 'nsm' ? 'RNS' : 'EDGAR'} ↗</a>` : ''}</td></tr>`).join('') + '</tbody>';
     document.getElementById('skFoot').textContent =
       `${evs.length} disclosure${evs.length === 1 ? '' : 's'}${evs.length > 400 ? ' (showing the 400 most significant)' : ''}` +
