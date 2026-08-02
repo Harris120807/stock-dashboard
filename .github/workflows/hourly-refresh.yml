@@ -68,6 +68,7 @@ jobs:
         if: steps.dedup.outputs.skip != 'true'
         run: |
           mkdir pub && cp out/index.html out/detail-data.json pub/ && cp -r state/pwa/. pub/
+          [ -f out/stakes-data.json ] && cp out/stakes-data.json pub/   # stake/deal disclosures for the #stakes tab
           mkdir -p pub/admin && cp state/admin.html pub/admin/index.html   # owner console (key-gated via the Worker)
           echo "valuetally.com" > pub/CNAME   # custom domain — GitHub Pages reads this from the branch root
           cd pub
