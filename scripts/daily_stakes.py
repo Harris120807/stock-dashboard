@@ -29,6 +29,7 @@ per run, default 60). First run (empty state) seeds ~550 days back
 accession/disclosure id.
 """
 import datetime
+import html as htmllib
 import json
 import os
 import re
@@ -161,8 +162,9 @@ def parse_13dg_xml(raw):
     rule = re.search(r"<designateRulePursuantThisScheduleFiled>(.*?)</designateRulePursuantThisScheduleFiled>", txt)
     icik = re.search(r"<issuerCik>0*(\d+)</issuerCik>", txt, re.I)
     inm = re.search(r"<issuerName>(.*?)</issuerName>", txt, re.S)
-    return (best[0], best[1], (rule.group(1).strip() if rule else None),
-            (int(icik.group(1)) if icik else None), (inm.group(1).strip() if inm else None))
+    unesc = lambda v: htmllib.unescape(v.strip()) if v else None  # XML carries &amp; etc.
+    return (unesc(best[0]), best[1], (rule.group(1).strip() if rule else None),
+            (int(icik.group(1)) if icik else None), unesc(inm.group(1) if inm else None))
 
 
 def parse_tr1(raw):
@@ -278,7 +280,7 @@ def main():
             if acc in known:
                 continue
             if form in SQUELCH_FORMS and any(
-                    e["form"] == form and (today - datetime.date.fromisoformat(e["d"])).days <= SQUELCH_D
+                    e["form"] == form and abs((datetime.date.fromisoformat(e["d"]) - datetime.date.fromisoformat(d)).days) <= SQUELCH_D
                     for e in ent["events"]):
                 continue
             nodash = acc.replace("-", "")
