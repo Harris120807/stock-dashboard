@@ -812,7 +812,7 @@ for _t, _ent in (_sk.get("byTicker") or {}).items():
         _passive = _e["form"] in ("13G", "13G/A", "TR-1") and not _e.get("subject")
         if _age > (180 if _passive else 550):
             continue
-        _ev = {k: _e[k] for k in ("d", "form", "filer", "subject", "pct", "prevPct", "rule", "url", "hl", "note", "sig", "src") if _e.get(k) is not None}
+        _ev = {k: _e[k] for k in ("d", "form", "filer", "subject", "pct", "prevPct", "rule", "url", "hl", "note", "shares", "terms", "sig", "src") if _e.get(k) is not None}
         _ev["t"] = _t
         _ev["rank"] = round(_e.get("sig", 30) * math.exp(-_age / 60), 1)
         _sk_events.append(_ev)

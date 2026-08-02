@@ -882,6 +882,26 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   hit this). note ships through stakes-data.json; card shows it as an
   italic quote, table as a muted second line. Passive 13G forms get no
   note by design (cost, no story). Backfilled 351 events 2026-08-02.
+- **Deal numbers (2026-08-02, owner-requested)**: events also carry
+  `shares` (13D/G XML aggregate holdings; TR-1 total voting rights —
+  int regex needs the (?<![\d.]) lookbehind or it eats a float's decimals)
+  and `terms` (`extract_terms`: per-share price / headline value / exchange
+  ratio, context-filtered — par value, liquidation preference, redemption
+  price, principal amount are boilerplate money that must never surface).
+  S-4 debt-exchange reclass keys off the note. Rendered as accent chips on
+  cards; appended to the table note line.
+- **Click-in filing summary (2026-08-02, owner-requested)**: Worker route
+  `GET /stakes/detail?u=<filing-url>&form=` — allowlist ONLY
+  sec.gov/Archives/edgar/data/ + data.fca.org.uk/artefacts/ (NOT an open
+  proxy), strips the EDGAR xsl viewer prefix to raw XML, extracts ≤7
+  key-fact bullets per form type (13D/G XML: filer/subject/position/event
+  date/source of funds/stated purpose/rule; deal HTML: parties,
+  consideration, value, exchange ratio, termination fee, timing,
+  conditions, board rec; TR-1: holder/reason/threshold date/resulting %
+  + voting rights/previous %). Filings are immutable → edge-cached 7d
+  (upstream fetch cf-cached too). Template: "Details ▾" button on cards
+  AND table rows (delegated [data-skd] handler, client Map cache,
+  .sk-bullets inset). Failure text points at the Filing link.
 - **Financial-filer churn rule (2026-08-02, post-seed)**: outward 13G/13G/A
   from rows whose sector is Financial Services/Banking/Insurance/Asset
   Management are SKIPPED at ingest (BLK/GS/MS file 13Gs on their whole fund

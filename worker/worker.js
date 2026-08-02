@@ -1442,6 +1442,126 @@ async function sendWeekly(env, ctx) {
   }
 }
 
+// ---------- Stakes: click-in filing summary (2026-08-02) ----------
+// GET /stakes/detail?u=<filing url>&form=<FORM> — fetches the filing
+// server-side (browsers can't reach EDGAR/FCA; strict allowlist so this is
+// not an open proxy) and compresses it into a few key-fact bullets.
+// Filings are immutable → cached a week at the edge.
+const STAKES_UA = 'ValueTally stake-monitor (contact@valuetally.com)';
+const STAKES_ALLOWED = [/^https:\/\/www\.sec\.gov\/Archives\/edgar\/data\//, /^https:\/\/data\.fca\.org\.uk\/artefacts\//];
+
+function skStrip(s) {
+  return s.replace(/<(style|script|head)[^>]*>[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;|&#160;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&#\d+;|&[a-z]+;/gi, ' ').replace(/\s+/g, ' ');
+}
+
+function skXmlBullets(xml) {
+  const b = [];
+  const all = (tag) => [...xml.matchAll(new RegExp('<' + tag + '>([\\s\\S]*?)</' + tag + '>', 'g'))].map(m => skStrip(m[1]).trim());
+  const one = (tag) => (all(tag)[0] || null);
+  const persons = all('reportingPersonName').slice(0, 3);
+  if (persons.length) b.push('Filed by ' + persons.join(', ') + (all('reportingPersonName').length > 3 ? ' and others' : ''));
+  const issuer = one('issuerName');
+  if (issuer) b.push('Subject company: ' + issuer + (one('securitiesClassTitle') ? ' — ' + one('securitiesClassTitle') : ''));
+  const pcts = [...xml.matchAll(/<(?:classPercent|percentOfClass)>\s*([\d]+(?:\.\d+)?)/g)].map(m => parseFloat(m[1]));
+  const shs = [...xml.matchAll(/<(?:reportingPersonBeneficiallyOwnedAggregateNumberOfShares|aggregateAmountOwned)>\s*(\d+)/g)].map(m => parseInt(m[1]));
+  if (pcts.length) {
+    const p = Math.max(...pcts), sh = shs.length ? Math.max(...shs) : null;
+    b.push('Position: ' + (sh ? sh.toLocaleString('en-US') + ' shares, ' : '') + p + '% of the class');
+  }
+  const ev = one('dateOfEvent') || one('eventDateRequiresFilingThisStatement');
+  if (ev) b.push('Date of event triggering the filing: ' + ev);
+  const funds = one('fundsSource');
+  if (funds && funds.length > 3) b.push('Source of funds: ' + funds.slice(0, 200));
+  const purpose = one('transactionPurpose');
+  if (purpose) {
+    const sents = purpose.split(/(?<=[.!?])\s+/).filter(x => x.length > 30 && !/incorporated by reference/i.test(x));
+    if (sents.length) b.push('Stated purpose: ' + sents.slice(0, 2).join(' ').slice(0, 300));
+  }
+  const rule = one('designateRulePursuantThisScheduleFiled');
+  if (rule) b.push('Filed under ' + rule + (/13d-1\(b\)|13d-1\(c\)/.test(rule) ? ' (passive/institutional designation)' : ''));
+  return b;
+}
+
+function skTr1Bullets(text) {
+  const b = [];
+  const m1 = text.match(/subject to the notification obligation\s*(?:i+[iv]*\b)?\s*:?\s*(?:Name\b\s*)?(.{3,90}?)\s+(?:City of|Country of|[34]\.\s|Full name of shareholder)/i);
+  if (m1 && !/^(if |the person|name$|above)/i.test(m1[1].trim())) b.push('Holder: ' + m1[1].trim().replace(/[ :;.,]+$/, ''));
+  const m2 = text.match(/Reason for [Nn]otification\s+(.{10,120}?)\s+3\./);
+  if (m2) b.push('Reason: ' + m2[1].trim());
+  const m3 = text.match(/threshold was crossed or reached\s+(\d{1,2}-\w{3}-\d{4})/);
+  if (m3) b.push('Threshold crossed: ' + m3[1]);
+  const seg = (a, w) => { const i = text.toLowerCase().indexOf(a); return i < 0 ? '' : text.slice(i, i + w); };
+  const res = seg('resulting situation on the date', 300).match(/(\d{1,3}\.\d{1,6})\b/g);
+  if (res) {
+    const total = parseFloat(res[2] ?? res[0]);
+    const sh = seg('resulting situation on the date', 320).match(/(?<![\d.])(\d{5,13})(?![\d.])/);
+    if (total > 0 && total <= 100) b.push('Resulting position: ' + total + '% of voting rights' + (sh ? ' (' + parseInt(sh[1]).toLocaleString('en-US') + ' voting rights)' : ''));
+  }
+  const prev = seg('position of previous notification', 160).match(/(\d{1,3}\.\d{1,6})\b/g);
+  if (prev) {
+    const p = parseFloat(prev[2] ?? prev[0]);
+    if (p > 0 && p <= 100) b.push('Previous notification: ' + p + '%');
+  }
+  return b;
+}
+
+function skHtmlBullets(text) {
+  const sents = text.split(/(?<=[.!?])\s+(?=[A-Z“"'0-9])/).map(x => x.trim())
+    .filter(x => x.length >= 40 && x.length <= 420 && !/\.htm|\.txt|table of contents|check the appropriate|commission file/i.test(x));
+  const b = [];
+  const used = new Set();
+  const grab = (label, re, guard) => {
+    if (b.length >= 6) return;
+    for (const x of sents) {
+      if (used.has(x) || !re.test(x)) continue;
+      if (guard && guard.test(x)) continue;
+      used.add(x);
+      b.push((label ? label + ': ' : '') + x.slice(0, 260) + (x.length > 260 ? '…' : ''));
+      return;
+    }
+  };
+  const parVal = /par value|liquidation preference|redemption price|principal amount/i;
+  grab('', /(entered into an? (agreement|merger)|agreed to acquire|will acquire|announced? (?:that|the|a|an)|commenced a (?:cash )?tender offer|offer to acquire|acquisition of|merger of)/i, /annex|attached as|accompanying/i);
+  grab('Consideration', /[€£$] ?\d[\d.,]*(?: ?(?:billion|million))?(?:,? without interest,?)?(?: in cash)? (?:per|for each) (share|ADS)/i, parVal);
+  grab('Value', /(aggregate|enterprise|equity|total) value of (approximately |about )?[€£$]|consideration of (up to )?[€£$] ?[\d.,]+ ?(billion|million)|valued at (approximately )?[€£$]/i, parVal);
+  grab('Exchange ratio', /exchange ratio/i, null);
+  grab('Termination fee', /termination fee of (approximately )?[€£$]/i, null);
+  grab('Timing', /expected to (close|be completed|complete|occur) (in|during|by|later)/i, null);
+  grab('Conditions', /subject to .{0,120}(approval|conditions|clearance)/i, /annex|accompanying/i);
+  grab('Board', /board[^.]{0,90}(unanimously|recommend)/i, null);
+  if (!b.length && sents.length) b.push(sents[0].slice(0, 260));
+  return b;
+}
+
+async function handleStakesDetail(url, ctx) {
+  const u = url.searchParams.get('u') || '';
+  const form = (url.searchParams.get('form') || '').slice(0, 20);
+  if (!STAKES_ALLOWED.some(re => re.test(u)) || u.length > 400) return json({ error: 'unsupported source' }, 400, 0);
+  const cache = caches.default;
+  const cacheKey = new Request('https://cache.internal/stakes-detail?u=' + encodeURIComponent(u));
+  const hit = await cache.match(cacheKey);
+  if (hit) return hit;
+  const target = u.replace(/xsl[^/]+\//, '');  // EDGAR structured filings: viewer path → raw XML
+  const up = await fetch(target, { headers: { 'User-Agent': STAKES_UA }, cf: { cacheTtl: 604800, cacheEverything: true } });
+  if (!up.ok) return json({ error: 'filing fetch failed (' + up.status + ')' }, 502, 0);
+  let body = (await up.text()).slice(0, 500_000);
+  let bullets;
+  if (/\.xml($|\?)/.test(target)) bullets = skXmlBullets(body);
+  else if (form === 'TR-1') bullets = skTr1Bullets(skStrip(body));
+  else {
+    let t = skStrip(body);
+    // RNS artefacts: skip the NSM header (starts repeating at the headline)
+    const hi = t.indexOf('RNS Number');
+    if (u.includes('data.fca.org.uk') && hi > 0) t = t.slice(hi + 60);
+    bullets = skHtmlBullets(t);
+  }
+  const res = json({ bullets: bullets.slice(0, 7), source: u }, 200, 604800);
+  ctx.waitUntil(cache.put(cacheKey, res.clone()));
+  return res;
+}
+
 export default {
   async scheduled(event, env, ctx) {
     // three crons share this handler — dispatch on the expression
@@ -1477,6 +1597,10 @@ export default {
       if (!flags.fullRefresh) return json({ error: 'full refresh is currently disabled by the owner', disabled: true }, 403, 0);
       try { return await handleRefresh(env, ctx); }
       catch (e) { errLog(env, ctx, route, e); return json({ error: 'temporarily unavailable' }, 503, 0); }
+    }
+    if (route === 'stakes/detail' && req.method === 'GET') {
+      try { return await handleStakesDetail(url, ctx); }
+      catch (e) { errLog(env, ctx, route, e); return json({ error: 'temporarily unavailable' }, 503, 10); }
     }
     if (route === 'prices' && req.method === 'GET') {
       const flags = await getFlags(env);

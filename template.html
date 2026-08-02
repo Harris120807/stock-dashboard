@@ -335,6 +335,11 @@
   .sk-line { font-size: 13.5px; margin: 4px 0 6px; color: var(--text-secondary); }
   .sk-note { font-size: 12.5px; margin: -2px 0 7px; color: var(--text-muted); font-style: italic; }
   .sk-tblnote { display: block; font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+  .sk-tag.sk-terms { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); font-variant-numeric: tabular-nums; }
+  .sk-more-btn { background: none; border: none; color: var(--accent); font: inherit; font-size: 11.5px; cursor: pointer; padding: 0; }
+  .sk-bullets { margin: 8px 0 2px; padding: 8px 12px; border-left: 2px solid var(--gridline); font-size: 12.5px; color: var(--text-secondary); }
+  .sk-bullets ul { margin: 0; padding-left: 16px; }
+  .sk-bullets li { margin: 4px 0; }
   .sk-meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 11.5px; color: var(--text-muted); }
   .sk-tag { border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; }
   .sk-tag.new { color: var(--good); border-color: var(--good); font-weight: 600; }
@@ -3066,6 +3071,8 @@ function applyHash(){
     return hay.includes(q);
   }
   const link = t => `<a href="#${escHtml(t)}">${escHtml(NAME[t] || t)}</a>`;
+  const fmtShares = n => n >= 1e9 ? (n / 1e9).toFixed(2) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'K' : String(n);
+  const moreBtn = e => e.url ? `<button class="sk-more-btn" data-skd="${escHtml(e.url)}" data-skform="${escHtml(e.form)}">Details ▾</button>` : '';
   function card(e){
     const cls = e.sig >= 85 ? 'sk-deal' : e.sig >= 60 ? 'sk-strat' : '';
     const isNew = ageDays(e.d) <= 2;
@@ -3075,7 +3082,10 @@ function applyHash(){
       <div class="sk-line">${escHtml(line(e))}${e.form !== 'TR-1' && e.hl && DEAL_FORMS.has(e.form) ? ' — ' + escHtml(e.hl) : ''}</div>
       ${e.note ? `<div class="sk-note">“${escHtml(e.note)}”</div>` : ''}
       <div class="sk-meta">${isNew ? '<span class="sk-tag new">NEW</span>' : ''}<span class="sk-tag">${escHtml(tag)}</span>
+        ${e.terms ? `<span class="sk-tag sk-terms">${escHtml(e.terms)}</span>` : ''}
+        ${e.shares ? `<span class="sk-tag">${fmtShares(e.shares)} shares</span>` : ''}
         <span>${e.src === 'nsm' ? 'FCA / RNS' : 'SEC EDGAR'}</span>
+        ${moreBtn(e)}
         ${e.url ? `<a href="${escHtml(e.url)}" target="_blank" rel="noopener">Filing ↗</a>` : ''}</div>
     </div>`;
   }
@@ -3092,7 +3102,7 @@ function applyHash(){
     document.getElementById('skTbl').innerHTML =
       '<thead><tr><th>Date</th><th>Company</th><th>Event</th><th>%</th><th>Source</th></tr></thead><tbody>' +
       rows.map(e => `<tr><td style="white-space:nowrap">${escHtml(e.d)}</td><td style="white-space:nowrap">${link(e.t)}</td>
-        <td>${escHtml(line(e))}${e.note ? `<span class="sk-tblnote">${escHtml(e.note)}</span>` : ''}</td><td>${pctf(e.pct) || '—'}</td>
+        <td>${escHtml(line(e))}${e.note || e.terms ? `<span class="sk-tblnote">${escHtml([e.note, e.terms].filter(Boolean).join(' — '))}</span>` : ''} ${moreBtn(e)}</td><td>${pctf(e.pct) || '—'}</td>
         <td>${e.url ? `<a href="${escHtml(e.url)}" target="_blank" rel="noopener">${e.src === 'nsm' ? 'RNS' : 'EDGAR'} ↗</a>` : ''}</td></tr>`).join('') + '</tbody>';
     document.getElementById('skFoot').textContent =
       `${evs.length} disclosure${evs.length === 1 ? '' : 's'}${evs.length > 400 ? ' (showing the 400 most significant)' : ''}` +
@@ -3106,6 +3116,33 @@ function applyHash(){
       .catch(() => { document.getElementById('skTop').innerHTML =
         '<div class="section-sub">Stake data isn\'t available yet — it appears after the next daily pipeline run.</div>'; });
   }
+  // click-in filing details: Worker fetches the filing (EDGAR/FCA) and
+  // compresses it to key-fact bullets; immutable → cached hard on both ends
+  const SK_BULLETS = {};
+  view.addEventListener('click', async ev => {
+    const btn = ev.target.closest('[data-skd]');
+    if (!btn) return;
+    const wrap = btn.closest('.sk-card') || btn.closest('td');
+    if (!wrap) return;
+    let box = wrap.querySelector('.sk-bullets');
+    if (box && !box.hidden) { box.hidden = true; btn.textContent = 'Details ▾'; return; }
+    if (box) { box.hidden = false; btn.textContent = 'Details ▴'; return; }
+    box = document.createElement('div');
+    box.className = 'sk-bullets';
+    box.textContent = 'Reading the filing…';
+    wrap.appendChild(box);
+    btn.textContent = 'Details ▴';
+    const u = btn.dataset.skd;
+    try {
+      const j = SK_BULLETS[u] || await (await fetch(`${API_PROXY}/stakes/detail?u=${encodeURIComponent(u)}&form=${encodeURIComponent(btn.dataset.skform || '')}`)).json();
+      SK_BULLETS[u] = j;
+      box.innerHTML = (j.bullets && j.bullets.length)
+        ? '<ul>' + j.bullets.map(x => '<li>' + escHtml(x) + '</li>').join('') + '</ul>'
+        : 'Couldn’t summarize this filing — use the Filing link for the original.';
+    } catch (err) {
+      box.textContent = 'Couldn’t reach the summary service — use the Filing link for the original.';
+    }
+  });
   view.querySelectorAll('[data-skf]').forEach(b => b.addEventListener('click', () => {
     filter = b.dataset.skf;
     view.querySelectorAll('[data-skf]').forEach(x => x.classList.toggle('active', x === b));

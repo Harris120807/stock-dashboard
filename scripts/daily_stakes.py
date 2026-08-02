@@ -157,6 +157,65 @@ def snippet(text, prefer_deal_words=True, limit=250):
     return (pick[:limit - 1] + "…") if len(pick) > limit else pick
 
 
+MONEY = r"(?:€|£|\$|US\$) ?\d[\d.,]*(?: ?(?:billion|million))?"
+
+
+def extract_terms(text):
+    """Deal economics out of filing prose: per-share price, headline value,
+    exchange ratio. Context-filtered — 'par value $0.0001 per share' is
+    boilerplate on every US filing, never a deal term."""
+    out = []
+
+    def add(x):
+        x = re.sub(r"\s+", " ", x).strip(" ,.;:")
+        if x and x.lower() not in {o.lower() for o in out}:
+            out.append(x)
+
+    # explicit per-share consideration
+    for m in re.finditer(rf"({MONEY})(?: in cash)?(?:,? without interest,?)? (?:per|for each) (?:share|ADS|ordinary share)", text):
+        ctx = text[max(0, m.start() - 45):m.start()].lower()
+        try:
+            v = float(re.sub(r"[^\d.]", "", m.group(1).replace(",", "")))
+        except ValueError:
+            v = 0
+        if re.search(r"par value|nominal value|liquidation preference|redemption price|preferred stock|principal amount", ctx) or v < 0.05:
+            continue
+        add(m.group(0))
+        if len(out) >= 2:
+            break
+    for m in re.finditer(r"\d[\d.]* pence (?:in cash )?per share", text):
+        add(m.group(0))
+        break
+    # "consideration: $90.00 in cash" style (merger consideration clauses)
+    if not out:
+        for m in re.finditer(rf"({MONEY}) in cash", text):
+            ctx = text[max(0, m.start() - 90):m.end() + 60].lower()
+            if re.search(r"consideration|each share|per share|holders? of", ctx) and "par value" not in ctx:
+                add(m.group(0))
+                break
+    # headline transaction value
+    for m in re.finditer(rf"(?:consideration of (?:up to )?|purchase price of |offer price of |transaction valued? (?:at|of) |valued at |enterprise value of |equity value of |aggregate value of )(?:approximately |about )?({MONEY})", text, re.I):
+        add(m.group(0))
+        break
+    else:
+        for m in re.finditer(rf"(?:approximately|about) ({MONEY})", text):
+            if not re.search(r"billion|million", m.group(1)):
+                continue
+            ctx = text[max(0, m.start() - 90):m.end() + 90].lower()
+            if re.search(r"transaction|acquisition|merger|deal|consideration|offer", ctx) and "revenue" not in ctx:
+                add(m.group(0))
+                break
+    # exchange ratio
+    m = re.search(rf"exchange ratio represented (?:approximately )?({MONEY})", text)
+    if m:
+        add(m.group(0))
+    else:
+        m = re.search(r"exchange ratio of (?:approximately )?\d?\.\d{2,4}\b(?: shares?[a-zA-Z .]{0,40})?", text)
+        if m:
+            add(m.group(0))
+    return (" · ".join(out)[:170]) or None
+
+
 def sig_for(form, pct, delta, was_13g):
     """Significance 0-100. Deal events top, activist stakes next, passive churn bottom."""
     if form in ("TENDER", "TENDER-SELF", "14D9", "GOING-PRIVATE", "OFFER-BY", "OFFER-FOR",
@@ -198,7 +257,7 @@ def parse_13dg_xml(raw):
     company itself made ABOUT other issuers (e.g. United's 13D on AZUL) — the
     caller compares issuerCik with the company's own CIK to set direction."""
     txt = raw.decode("utf-8", "replace")
-    best = (None, None)
+    best = (None, None, None)
     # 13G schema wraps persons in coverPageHeaderReportingPersonDetails/classPercent;
     # 13D uses reportingPersonInfo/percentOfClass — handle both
     for m in re.finditer(r"<(?:coverPageHeaderReportingPersonDetails|reportingPersonInfo)>(.*?)</(?:coverPageHeaderReportingPersonDetails|reportingPersonInfo)>", txt, re.S):
@@ -206,8 +265,9 @@ def parse_13dg_xml(raw):
         nm = re.search(r"<reportingPersonName>(.*?)</reportingPersonName>", blk, re.S)
         pc = re.search(r"<(?:classPercent|percentOfClass)>\s*([\d]+(?:\.\d+)?)", blk)  # content may carry trailing prose
         pct = float(pc.group(1)) if pc else None
+        sh = re.search(r"<(?:reportingPersonBeneficiallyOwnedAggregateNumberOfShares|aggregateAmountOwned)>\s*(\d+)", blk)
         if best[1] is None or (pct is not None and pct > (best[1] or -1)):
-            best = (nm.group(1).strip() if nm else None, pct)
+            best = (nm.group(1).strip() if nm else None, pct, int(sh.group(1)) if sh else None)
     rule = re.search(r"<designateRulePursuantThisScheduleFiled>(.*?)</designateRulePursuantThisScheduleFiled>", txt)
     icik = re.search(r"<issuerCik>0*(\d+)</issuerCik>", txt, re.I)
     inm = re.search(r"<issuerName>(.*?)</issuerName>", txt, re.S)
@@ -217,7 +277,7 @@ def parse_13dg_xml(raw):
     note = snippet(htmllib.unescape(purp.group(1))) if purp else None
     unesc = lambda v: htmllib.unescape(v.strip()) if v else None  # XML carries &amp; etc.
     return (unesc(best[0]), best[1], (rule.group(1).strip() if rule else None),
-            (int(icik.group(1)) if icik else None), unesc(inm.group(1) if inm else None), note)
+            (int(icik.group(1)) if icik else None), unesc(inm.group(1) if inm else None), note, best[2])
 
 
 def parse_tr1(raw):
@@ -251,7 +311,13 @@ def parse_tr1(raw):
 
     res = total_from(floats_after("resulting situation on the date", 300))
     prev = total_from(floats_after("position of previous notification", 160))
-    return holder, res, prev
+    shares = None
+    i = t.lower().find("resulting situation on the date")
+    if i >= 0:
+        m = re.search(r"(?<![\d.])(\d{5,13})(?![\d.])", t[i:i + 320])  # total voting rights held (not a float's decimals)
+        if m:
+            shares = int(m.group(1))
+    return holder, res, prev, shares
 
 
 def load_state(path):
@@ -345,28 +411,30 @@ def main():
             nodash = acc.replace("-", "")
             url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{nodash}/{docs[i]}" if docs[i] else \
                   f"https://www.sec.gov/Archives/edgar/data/{cik}/{nodash}/"
-            filer = pct = rule = subject = note = None
+            filer = pct = rule = subject = note = shares = terms = None
             outward = False
             if form in ("13D", "13D/A", "13G", "13G/A") and f.startswith("SCHEDULE") and docs_left > 0:
                 docs_left -= 1
                 time.sleep(0.13)
                 raw = http(f"https://www.sec.gov/Archives/edgar/data/{cik}/{nodash}/primary_doc.xml")
                 if raw:
-                    filer, pct, rule, icik, inm, note = parse_13dg_xml(raw)
+                    filer, pct, rule, icik, inm, note, shares = parse_13dg_xml(raw)
                     xml_ok += 1
                     if icik and icik != cik:  # company is the FILER: stake in another firm
                         outward, subject = True, inm
                         if form in ("13G", "13G/A") and rowkey in fin_rows:
                             continue  # financial-sector portfolio churn
             elif form not in ("13G", "13G/A") and docs[i] and docs_left > 0:
-                # deal forms + 8-K events: pull a descriptive sentence from the
-                # document itself so the feed says WHAT the deal is (capped read —
-                # S-4s run to megabytes, the deal is described up front)
+                # deal forms + 8-K events: pull a descriptive sentence + deal
+                # economics from the document itself (capped read — S-4s run to
+                # megabytes, the deal is described up front)
                 docs_left -= 1
                 time.sleep(0.13)
                 raw = http(url, cap=200_000)
                 if raw:
-                    note = snippet(flatten_html(raw.decode("utf-8", "replace")))
+                    _txt = flatten_html(raw.decode("utf-8", "replace"))
+                    note = snippet(_txt)
+                    terms = extract_terms(_txt)
                 # S-4s also register routine debt exchange offers — don't let
                 # refinancing masquerade as M&A in the feed
                 if form == "MERGER-REG" and note and re.search(r"notes due|aggregate principal amount|exchange.{0,40}notes", note, re.I):
@@ -384,6 +452,7 @@ def main():
             ev = {
                 "id": acc, "d": d, "src": "edgar", "form": form, "filer": filer,
                 "pct": pct, "prevPct": prev, "rule": rule, "note": note,
+                "shares": shares, "terms": terms,
                 "sig": sig_for(form, pct, delta, was_13g), "url": url,
             }
             if outward:
@@ -445,24 +514,27 @@ def main():
             if eid in known:
                 continue
             url = "https://data.fca.org.uk/artefacts/" + s.get("download_link", "")
-            filer = pct = prev = note = None
+            filer = pct = prev = note = shares = terms = None
             if docs_left > 0 and s.get("download_link"):
                 docs_left -= 1
                 time.sleep(0.2)
                 raw = http(url, cap=200_000)
                 if raw and form == "TR-1":
-                    filer, pct, prev = parse_tr1(raw)
+                    filer, pct, prev, shares = parse_tr1(raw)
                 elif raw:
                     _t = flatten_html(raw.decode("utf-8", "replace"))
                     # RNS docs repeat the headline right before the body — cut
                     # the NSM/RNS-number header boilerplate by starting there
                     _hl = (s.get("headline") or "").strip()
                     _i = _t.find(_hl) if _hl else -1
-                    note = snippet(_t[_i + len(_hl):] if _i >= 0 else _t)
+                    _t = _t[_i + len(_hl):] if _i >= 0 else _t
+                    note = snippet(_t)
+                    terms = extract_terms(_t)
             delta = (pct - prev) if (pct is not None and prev is not None) else None
             ent["events"].append({
                 "id": eid, "d": d, "src": "nsm", "form": form, "filer": filer,
                 "pct": pct, "prevPct": prev, "hl": (s.get("headline") or "")[:120], "note": note,
+                "shares": shares, "terms": terms,
                 "sig": sig_for(form, pct, delta, False), "url": url,
             })
             ev_new += 1
