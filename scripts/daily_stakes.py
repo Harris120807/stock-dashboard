@@ -219,11 +219,17 @@ def main():
 
     with open(os.path.join(STATE_DIR, "universe.json")) as f:
         uni = json.load(f)
-    names = {}
+    names, fin_rows = {}, set()
     try:
         with open(os.path.join(STATE_DIR, "last-data.json")) as f:
             for r in json.load(f):
                 names[r.get("ticker")] = r.get("name")
+                # asset managers / banks / insurers file outward 13Gs on their whole
+                # portfolio and dealer books — that churn is business-as-usual, not
+                # strategic interest, so their outward PASSIVE events are dropped
+                # (outward 13Ds stay: activist intent is notable from anyone)
+                if r.get("sector") in ("Financial Services", "Banking", "Insurance", "Asset Management"):
+                    fin_rows.add(r.get("ticker"))
     except Exception:
         pass
 
@@ -297,6 +303,8 @@ def main():
                     xml_ok += 1
                     if icik and icik != cik:  # company is the FILER: stake in another firm
                         outward, subject = True, inm
+                        if form in ("13G", "13G/A") and rowkey in fin_rows:
+                            continue  # financial-sector portfolio churn
             prev = next((e.get("pct") for e in ent["events"]
                          if e.get("filer") and filer and e["filer"].lower() == filer.lower()
                          and e.get("pct") is not None
