@@ -870,6 +870,13 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   ~340 EDGAR submissions + ~15 NSM queries + only-new doc fetches (~2 min).
 - Coverage honesty (stated in the tab sub): continental EU rows are covered
   only through US ADR filings; UK Takeover Code flow only for .L rows.
+- **Financial-filer churn rule (2026-08-02, post-seed)**: outward 13G/13G/A
+  from rows whose sector is Financial Services/Banking/Insurance/Asset
+  Management are SKIPPED at ingest (BLK/GS/MS file 13Gs on their whole fund
+  and dealer books — 621 seed events were that). Outward 13Ds kept for
+  everyone. Squelch window measures against the CANDIDATE filing date (a
+  today-relative compare shipped in the seed and duplicated same-day 425s);
+  XML entity names unescaped in the parser.
 
 ## Multi-agent coordination
 
