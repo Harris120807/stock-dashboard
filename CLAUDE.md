@@ -819,6 +819,58 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   privacy" paragraph updated to cover alert rules + the daily account-total
   snapshot — keep it honest with what's stored.
 
+## Stake building & deals (2026-08-02, owner-requested)
+
+- **Feature**: site tab `#stakes` (10 tabs now) — regulatory ownership/deal
+  disclosures for the whole universe, "most significant made obvious" per the
+  owner's brief (takeovers/mergers/restructurings first-class).
+- **Fetcher**: `scripts/daily_stakes.py` (stdlib, NO API key — both sources
+  public) runs as a daily-analyst.yml step (PR #25) → `stakes-state.json` on
+  claude/state (`{updatedAt, leis:{".L"→LEI}, byTicker:{row:{events[],
+  offer, cik, lastFetch}}}`; events deduped by accession/disclosure id,
+  550d window, 180d for passive 13G/A, cap 60/ticker). Failures non-fatal.
+- **EDGAR side** (US rows + EU rows via ADR symbol): data.sec.gov submissions
+  per CIK (map from sec.gov company_tickers.json, "." → "-"). Forms:
+  13D/13G(+/A), SC TO-T/TO-I, 14D9, 13E3, DEFM14A/PREM14A, S-4, 425, and 8-K
+  filtered BY ITEM CODE (1.03 bankruptcy → BANKRUPTCY, 2.01 → COMPLETED-ACQ;
+  other 8-Ks ignored). Structured XML (all 13D/G since Dec 2024) parsed for
+  filer/percent/rule — 13G schema uses coverPageHeaderReportingPersonDetails/
+  classPercent/issuerCik, 13D uses reportingPersonInfo/percentOfClass/
+  issuerCIK (both handled; classPercent content can carry trailing prose).
+  **Direction matters**: a company's own feed contains filings it made ABOUT
+  other issuers (UAL→AZUL, AZN→Monopar) — issuerCik≠own CIK ⇒ event gets
+  `subject` (outward stake, the owner's original "interest in other firms"
+  ask). Repeat deal-doc amendments (425, /A forms) squelched within 21d.
+- **FCA NSM side** (.L rows only): POST api.data.fca.org.uk/search?index=
+  nsm-search — criteria `company_lei` MUST be the positional 4-array
+  ["", LEI, "disclose_org", "related_org"] (plain LEI errors; keyword search
+  IGNORES criteria — mutually exclusive paths). type_codes: HOL (TR-1) +
+  OFB/OFD/OFF/ORE/OUP/POT/CAS/TEN/RTE/CAR/ACQ/DIS as events; Form 8.x codes
+  (RET/DCC/FEE/FEO/FER) are NOT events — they aggregate into an offer-period
+  flag `{last, n45}`. LEIs self-resolve once via keyword search, cached in
+  state. TR-1 docs (data.fca.org.uk/artefacts/ + download_link) parsed for
+  holder + resulting/previous % — anchor on "Resulting situation on the
+  date" NOT "threshold was crossed or reached" (that phrase appears 3×; the
+  section-8A heading match scoops "5.1" out of "DTR5.1"). Two holder-name
+  template wordings handled.
+- **Significance** (`sig` 0-100, stored per event): deal events 95/85/80,
+  8-K 2.01 70, CAR 65, ACQ/DIS 60, new 13D 80 (90 if the filer previously
+  held 13G — passive-to-active switch; +5 at ≥10%), 13D/A 55(+10 big delta),
+  13G 45, TR-1 35(+pct/delta bumps), 13G/A 25 — passive index churn ranks
+  low BY DESIGN. Outward events: 13D 80 / 13D/A 60 / 13G 55 / 13G/A 35.
+- **Publish**: refresh.py builds `stakes-data.json` beside detail-data.json
+  (`{updatedAt, events[], offers{}}`, events pre-sorted by `rank` = sig ×
+  exp(-age/60d); passive forms ship only ≤180d); hourly-refresh.yml copies
+  it to pages (guarded `[ -f ]`). Template `stakesView` IIFE lazy-fetches on
+  first tab open: filter chips (deals/activist/cross-stakes/holdings) +
+  search, "Most significant — last 60 days" cards (border color by sig:
+  ≥85 critical / ≥60 accent), offer-period banners, 400-row table, NEW badge
+  ≤2d, company links via `#TICKER` deep-links. All external text escHtml'd.
+- **Seed** run locally 2026-08-02 (DOC_CAP=6000). Steady-state daily run
+  ~340 EDGAR submissions + ~15 NSM queries + only-new doc fetches (~2 min).
+- Coverage honesty (stated in the tab sub): continental EU rows are covered
+  only through US ADR filings; UK Takeover Code flow only for .L rows.
+
 ## Multi-agent coordination
 
 - **Lanes**: (1) UI/template → `template.html` on `claude/state`; (2) scoring/pipeline →

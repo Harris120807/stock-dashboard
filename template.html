@@ -324,8 +324,23 @@
   .sec-mrow { display: flex; justify-content: space-between; gap: 8px; padding: 5px 2px; font-size: 13px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
   .sec-mrow:hover { color: var(--accent); }
   .sec-mrow .mname { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  /* stakes / deals view */
+  .sk-card { border: 1px solid var(--border); border-left: 3px solid var(--baseline); border-radius: 10px; padding: 10px 14px; margin: 8px 0; background: var(--page); }
+  .sk-card.sk-deal { border-left-color: var(--critical); }
+  .sk-card.sk-strat { border-left-color: var(--accent); }
+  .sk-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+  .sk-head a { font-weight: 600; color: var(--text-primary); text-decoration: none; }
+  .sk-head a:hover { color: var(--accent); }
+  .sk-date { font-size: 11.5px; color: var(--text-muted); white-space: nowrap; }
+  .sk-line { font-size: 13.5px; margin: 4px 0 6px; color: var(--text-secondary); }
+  .sk-meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 11.5px; color: var(--text-muted); }
+  .sk-tag { border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; }
+  .sk-tag.new { color: var(--good); border-color: var(--good); font-weight: 600; }
+  .sk-meta a { color: var(--accent); text-decoration: none; }
+  .sk-offer { border: 1px solid var(--warning); border-radius: 10px; padding: 8px 12px; margin: 8px 0; font-size: 13px; }
+  .sk-table td, .sk-table th { padding: 7px 10px; font-size: 12.5px; }
   @media (max-width: 480px){
-    .nav-tab span:last-child { display: none; }   /* 9 tabs: icons only on narrow phones */
+    .nav-tab span:last-child { display: none; }   /* 10 tabs: icons only on narrow phones */
     .nav-tab { gap: 0; padding: 9px 0; }
   }
   .wl-add-input { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--page); color: var(--text-primary); font: inherit; font-size: 13.5px; }
@@ -787,6 +802,7 @@
       <button class="nav-tab" data-view="sectors" title="Sectors"><span class="nav-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg></span><span>Sectors</span></button>
       <button class="nav-tab" data-view="watchlist" title="Watchlist"><span class="nav-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.6l2.2 4.6 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5L4.8 9.9l5-.7z"/></svg></span><span>Watchlist</span></button>
       <button class="nav-tab" data-view="portfolio" title="Portfolio"><span class="nav-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="7.5" width="17" height="12" rx="2"/><path d="M9 7.5V6.2c0-1 .8-1.7 1.7-1.7h2.6c.9 0 1.7.7 1.7 1.7v1.3M3.5 12.3h17"/></svg></span><span>Portfolio</span></button>
+      <button class="nav-tab" data-view="stakes" title="Stakes &amp; deals"><span class="nav-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="12" r="5.8"/><circle cx="15" cy="12" r="5.8"/></svg></span><span>Stakes</span></button>
       <button class="nav-tab" data-view="requests"><span class="nav-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="6" width="17" height="12.5" rx="2"/><path d="M4.5 7.5l7.5 5.7 7.5-5.7"/></svg></span><span>Requests</span></button>
       <button class="nav-tab nav-info" id="navInfo" title="About the scores &amp; data"><span class="nav-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.4"/><path d="M12 11.2V16M12 8.2h.01"/></svg></span><span>Info</span></button>
     </nav>
@@ -1086,6 +1102,28 @@
           <div style="overflow-x:auto"><table id="pfTable" style="width:100%"><thead></thead><tbody></tbody></table></div>
           <div class="section-sub" id="pfNote" style="margin-top:8px"></div>
         </div>
+      </div>
+    </main>
+
+    <main class="view" id="view-stakes">
+      <div class="card">
+        <div class="section-title">Stake building &amp; deals</div>
+        <div class="section-sub">Regulatory ownership and deal disclosures for covered companies: SEC filings (13D activist stakes, 13G institutional stakes, tender offers, merger documents) for US-registered shares, and FCA/RNS notifications (TR-1 holdings, Takeover Code announcements) for London listings. Continental European rows are covered only through their US ADR filings. Factual filings record, not investment advice.</div>
+        <div class="controls" style="margin-top:12px">
+          <button class="chip active" data-skf="all">All</button>
+          <button class="chip" data-skf="deal">Deals &amp; takeovers</button>
+          <button class="chip" data-skf="activist">Activist stakes</button>
+          <button class="chip" data-skf="cross">Company cross-stakes</button>
+          <button class="chip" data-skf="holdings">Holdings changes</button>
+          <span class="spacer"></span>
+          <input type="search" id="skSearch" placeholder="Company or holder…" autocomplete="off">
+        </div>
+        <div id="skOffers"></div>
+        <div class="section-title" style="margin-top:10px;font-size:15px">Most significant — last 60 days</div>
+        <div id="skTop"><div class="section-sub">Loading…</div></div>
+        <div class="section-title" style="margin-top:18px;font-size:15px">All recent disclosures</div>
+        <div class="table-scroll"><table class="sk-table" id="skTbl"></table></div>
+        <div id="skFoot" class="section-sub" style="margin-top:8px"></div>
       </div>
     </main>
 
@@ -2940,7 +2978,7 @@ function selectStock(ticker, opts){
 }
 
 // ---------- pages / router ----------
-const VIEWS = ['overview', 'table', 'stock', 'compare', 'sectors', 'watchlist', 'portfolio', 'requests'];
+const VIEWS = ['overview', 'table', 'stock', 'compare', 'sectors', 'watchlist', 'portfolio', 'stakes', 'requests'];
 function showView(name){
   if (!VIEWS.includes(name)) name = 'overview';
   VIEWS.forEach(v => { const el = document.getElementById('view-' + v); if (el) el.classList.toggle('active', v === name); });
@@ -2959,6 +2997,119 @@ function applyHash(){
   if (h && DATA.some(d => d.ticker === h)){ selectStock(h); return; }
   showView('overview');
 }
+
+// ---------- Stakes & deals (page) ----------
+// Data contract: stakes-data.json published by refresh.py from stakes-state.json
+// (daily_stakes.py: EDGAR + FCA NSM). Events arrive pre-ranked (sig × recency
+// decay); this view only filters, words and paints them.
+(function stakesView(){
+  const view = document.getElementById('view-stakes');
+  if (!view) return;
+  let SK = null, fetching = null, filter = 'all', q = '';
+  const NAME = {}; DATA.forEach(d => { NAME[d.ticker] = d.name; });
+  const DEAL_FORMS = new Set(['TENDER','TENDER/A','TENDER-SELF','TENDER-SELF/A','14D9','14D9/A',
+    'GOING-PRIVATE','GOING-PRIVATE/A','OFFER-BY','OFFER-FOR','POSSIBLE-OFFER','OFFER-REJECTED',
+    'OFFER-UPDATE','PANEL-STATEMENT','COMPULSORY-ACQ','TENDER-RESULT','MERGER-PROXY','MERGER-REG',
+    'MERGER-COMM','BANKRUPTCY','COMPLETED-ACQ','CAPITAL-REORG','ACQUISITION','DISPOSAL']);
+  const DEAL_LABEL = {
+    'TENDER':'Tender offer launched for the company (SC TO-T)',
+    'TENDER/A':'Tender offer document amended',
+    'TENDER-SELF':'Company tender for its own shares (SC TO-I)',
+    'TENDER-SELF/A':'Self-tender document amended',
+    '14D9':'Board response to a tender offer (14D-9)',
+    '14D9/A':'Tender-response document amended',
+    'GOING-PRIVATE':'Going-private transaction filed (13E-3)',
+    'GOING-PRIVATE/A':'Going-private document amended',
+    'MERGER-PROXY':'Merger proxy filed — shareholders to vote on a deal',
+    'MERGER-REG':'Merger / share-exchange registration filed (S-4)',
+    'MERGER-COMM':'Deal communication filed (Rule 425)',
+    'BANKRUPTCY':'Bankruptcy or receivership disclosed (8-K item 1.03)',
+    'COMPLETED-ACQ':'Acquisition or disposal completed (8-K item 2.01)',
+    'CAPITAL-REORG':'Capital reorganisation announced',
+    'ACQUISITION':'Acquisition announced', 'DISPOSAL':'Disposal announced',
+    'OFFER-BY':'Offer announced', 'OFFER-FOR':'Takeover offer for the company',
+    'POSSIBLE-OFFER':'Possible-offer statement (Takeover Code)',
+    'OFFER-REJECTED':'Offer rejected', 'OFFER-UPDATE':'Offer update',
+    'PANEL-STATEMENT':'Takeover Panel statement', 'COMPULSORY-ACQ':'Compulsory acquisition of shares',
+    'TENDER-RESULT':'Tender offer result',
+  };
+  const FORM_TAG = {'13D':'Schedule 13D','13D/A':'13D amendment','13G':'Schedule 13G','13G/A':'13G amendment','TR-1':'TR-1 notification'};
+  const cat = e => e.subject ? 'cross' : DEAL_FORMS.has(e.form) ? 'deal'
+    : (e.form === '13D' || e.form === '13D/A') ? 'activist' : 'holdings';
+  const pctf = v => v == null ? null : (Math.round(v * 100) / 100) + '%';
+  function line(e){
+    const filer = e.filer || null, p = pctf(e.pct), prev = pctf(e.prevPct);
+    if (e.subject){
+      const verb = e.form.endsWith('/A') ? 'updates' : 'discloses';
+      const what = e.form.startsWith('13D') ? 'an activist-form stake' : 'a stake';
+      return `${NAME[e.t] || e.t} ${verb} ${what}${p ? ' of ' + p : ''} in ${e.subject}`;
+    }
+    switch (e.form){
+      case '13D':   return `${filer || 'An investor'} discloses an activist stake${p ? ' of ' + p : ''} — Schedule 13D, intent to engage`;
+      case '13D/A': return `${filer || 'An activist holder'} updates activist stake${p ? ' to ' + p : ''}${prev ? ' (was ' + prev + ')' : ''}`;
+      case '13G':   return `${filer || 'An institution'} discloses a passive stake${p ? ' of ' + p : ''}`;
+      case '13G/A': return e.pct === 0
+        ? `${filer || 'An institution'} exits its reportable stake (below 5%)`
+        : `${filer || 'An institution'} adjusts passive stake${p ? ' to ' + p : ''}${prev ? ' (was ' + prev + ')' : ''}`;
+      case 'TR-1':  return `${filer || 'A holder'} notifies ${p || 'a change in'} voting rights${prev ? ' (was ' + prev + ')' : ''}`;
+      default: return DEAL_LABEL[e.form] || (e.hl || e.form);
+    }
+  }
+  const ageDays = d => Math.floor((Date.now() - new Date(d + 'T12:00Z')) / 864e5);
+  function matches(e){
+    if (filter !== 'all' && cat(e) !== filter) return false;
+    if (!q) return true;
+    const hay = `${e.t} ${NAME[e.t] || ''} ${e.filer || ''} ${e.subject || ''} ${e.hl || ''}`.toLowerCase();
+    return hay.includes(q);
+  }
+  const link = t => `<a href="#${escHtml(t)}">${escHtml(NAME[t] || t)}</a>`;
+  function card(e){
+    const cls = e.sig >= 85 ? 'sk-deal' : e.sig >= 60 ? 'sk-strat' : '';
+    const isNew = ageDays(e.d) <= 2;
+    const tag = DEAL_FORMS.has(e.form) ? 'Deal event' : FORM_TAG[e.form] || e.form;
+    return `<div class="sk-card ${cls}">
+      <div class="sk-head">${link(e.t)}<span class="sk-date">${escHtml(e.d)}</span></div>
+      <div class="sk-line">${escHtml(line(e))}${e.form !== 'TR-1' && e.hl && DEAL_FORMS.has(e.form) ? ' — ' + escHtml(e.hl) : ''}</div>
+      <div class="sk-meta">${isNew ? '<span class="sk-tag new">NEW</span>' : ''}<span class="sk-tag">${escHtml(tag)}</span>
+        <span>${e.src === 'nsm' ? 'FCA / RNS' : 'SEC EDGAR'}</span>
+        ${e.url ? `<a href="${escHtml(e.url)}" target="_blank" rel="noopener">Filing ↗</a>` : ''}</div>
+    </div>`;
+  }
+  function render(){
+    if (!SK) return;
+    const evs = (SK.events || []).filter(matches);
+    const top = evs.filter(e => e.sig >= 60 && ageDays(e.d) <= 60).slice(0, 20);
+    document.getElementById('skTop').innerHTML = top.length ? top.map(card).join('')
+      : '<div class="section-sub">Nothing high-significance in the last 60 days for this filter — quiet is the normal state.</div>';
+    const offers = Object.entries(SK.offers || {}).filter(([t]) => !q || (`${t} ${NAME[t] || ''}`).toLowerCase().includes(q));
+    document.getElementById('skOffers').innerHTML = offers.map(([t, o]) =>
+      `<div class="sk-offer">⚠ ${link(t)} is in a Takeover Code offer period — ${o.n45} dealing disclosure${o.n45 === 1 ? '' : 's'} in the last 45 days (last ${escHtml(o.last || '')}).</div>`).join('');
+    const rows = evs.slice(0, 400);
+    document.getElementById('skTbl').innerHTML =
+      '<thead><tr><th>Date</th><th>Company</th><th>Event</th><th>%</th><th>Source</th></tr></thead><tbody>' +
+      rows.map(e => `<tr><td style="white-space:nowrap">${escHtml(e.d)}</td><td style="white-space:nowrap">${link(e.t)}</td>
+        <td>${escHtml(line(e))}</td><td>${pctf(e.pct) || '—'}</td>
+        <td>${e.url ? `<a href="${escHtml(e.url)}" target="_blank" rel="noopener">${e.src === 'nsm' ? 'RNS' : 'EDGAR'} ↗</a>` : ''}</td></tr>`).join('') + '</tbody>';
+    document.getElementById('skFoot').textContent =
+      `${evs.length} disclosure${evs.length === 1 ? '' : 's'}${evs.length > 400 ? ' (showing the 400 most significant)' : ''}` +
+      (SK.updatedAt ? ` · data fetched ${String(SK.updatedAt).slice(0, 10)}` : '') +
+      ' · Passive index-fund churn ranks low by design; amendments repeating within 3 weeks are collapsed.';
+  }
+  function load(){
+    if (SK || fetching) return;
+    fetching = fetch('stakes-data.json').then(r => { if (!r.ok) throw 0; return r.json(); })
+      .then(j => { SK = j; render(); })
+      .catch(() => { document.getElementById('skTop').innerHTML =
+        '<div class="section-sub">Stake data isn\'t available yet — it appears after the next daily pipeline run.</div>'; });
+  }
+  view.querySelectorAll('[data-skf]').forEach(b => b.addEventListener('click', () => {
+    filter = b.dataset.skf;
+    view.querySelectorAll('[data-skf]').forEach(x => x.classList.toggle('active', x === b));
+    render();
+  }));
+  document.getElementById('skSearch').addEventListener('input', ev => { q = ev.target.value.trim().toLowerCase(); render(); });
+  document.addEventListener('viewchange', ev => { if (ev.detail === 'stakes') load(); });
+})();
 
 // ---------- Compare graphs (page) ----------
 (function compareGraphs(){

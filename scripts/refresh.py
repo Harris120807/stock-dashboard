@@ -788,6 +788,37 @@ for d in records:
     slim_records.append(sd)
 json.dump({"updatedAt": now.isoformat(), "byTicker": detail_by},
           open(f"{OUT}/detail-data.json", "w"), separators=(",", ":"), ensure_ascii=False)
+
+# Stake-building payload (2026-08-02): stake/deal disclosures fetched each
+# weekday by daily_stakes.py (EDGAR 13D/G + deal forms, FCA NSM TR-1 +
+# Takeover Code events) into stakes-state.json on claude/state. Published as
+# stakes-data.json beside detail-data.json, lazy-fetched by the #stakes tab.
+# rank = significance with 60-day recency decay so the feed self-sorts; passive
+# churn (13G/A, sub-threshold TR-1s) ships only for the last 180 days.
+try:
+    with open(f"{STATE}/stakes-state.json") as _f:
+        _sk = json.load(_f)
+except Exception:
+    _sk = {}
+_sk_events, _sk_offers = [], {}
+_live_t = {d["ticker"] for d in records}
+for _t, _ent in (_sk.get("byTicker") or {}).items():
+    if _t not in _live_t:
+        continue
+    if _ent.get("offer"):
+        _sk_offers[_t] = _ent["offer"]
+    for _e in _ent.get("events", []):
+        _age = (now.date() - datetime.date.fromisoformat(_e["d"])).days
+        _passive = _e["form"] in ("13G", "13G/A", "TR-1") and not _e.get("subject")
+        if _age > (180 if _passive else 550):
+            continue
+        _ev = {k: _e[k] for k in ("d", "form", "filer", "subject", "pct", "prevPct", "rule", "url", "hl", "sig", "src") if _e.get(k) is not None}
+        _ev["t"] = _t
+        _ev["rank"] = round(_e.get("sig", 30) * math.exp(-_age / 60), 1)
+        _sk_events.append(_ev)
+_sk_events.sort(key=lambda x: -x["rank"])
+json.dump({"updatedAt": _sk.get("updatedAt"), "events": _sk_events, "offers": _sk_offers},
+          open(f"{OUT}/stakes-data.json", "w"), separators=(",", ":"), ensure_ascii=False)
 data_json = json.dumps(slim_records, separators=(",", ":"), ensure_ascii=False)
 pool_sectors = {d.get("sector") for d in records}
 bench_slim = json.dumps({"market": BENCH["market"],
