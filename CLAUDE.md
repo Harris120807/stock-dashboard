@@ -910,6 +910,39 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   today-relative compare shipped in the seed and duplicated same-day 425s);
   XML entity names unescaped in the parser.
 
+## 2026-08-13 batch (resilience / dividends / stakes integration)
+
+- **Yahoo circuit breaker (refresh.py `get()`)**: consecutive-failure counter
+  on yahoo.com URLs — ≥3 → single-attempt mode, ≥12 → circuit OPEN for the
+  rest of the run (every Yahoo call returns None; tickers carry stored data,
+  run summary appends "YAHOO-CIRCUIT-OPEN"); Yahoo Retry-After sleeps capped
+  15s (Finnhub untouched at 60). Built after the 2026-08-06 outage — which
+  post-mortem showed was actually a GITHUB runner-capacity incident (jobs
+  queued 15 min with runner_id=0, then GH-cancelled; self-healed) — kept
+  because the retry ladder genuinely can't survive a real Yahoo brownout.
+- **Dividend calendar**: daily_analyst's quoteSummary call adds the
+  calendarEvents module (same request as targets) → `dcal:{ex,pay}` in
+  analyst-state; refresh ships slim `exDiv`/`divPay` (dropped 5 days after
+  the date passes). UI: collapsed "Upcoming ex-dividend dates" card on
+  #overview (14-day window, earnings-card pattern) + `exDiv` table column
+  marked `optOnly` (picker-only; visibleCols' full branch filters optOnly —
+  new picker-only columns use that flag).
+- **Stakes → emails (worker.js)**: `recentStakeEvents(ctx,days,minSig)`
+  reads stakes-state.json via stateJson; sendDigests adds a "Stake & deal
+  filings on your watchlist" section (sig≥60, 2-day window — may repeat a
+  yesterday item once, accepted) and deal-only days still email (subject
+  'ValueTally filings: …'); sendWeekly adds "Deals & stake building this
+  week" (top-5 by sig, best event per company, all recipients).
+- **Detail-card Ownership & deals strip**: `renderCardStakes(t)` +
+  `window.__stakes = {load, line}` exposed from the stakesView IIFE (load()
+  now returns a shared promise). Latest 3 events + offer-period banner +
+  "All filings →" link that pre-fills the #stakes search via
+  `window._skPending` (consumed in the view's viewchange handler).
+- **Ownership timeline**: the Details expander appends an SVG line of the
+  clicked FILER's percent history in that stock (client-side from
+  stakes-data events; needs ≥2 points, same-filer case-insensitive,
+  inward events only). moreBtn buttons carry data-skt/data-skfiler.
+
 ## Multi-agent coordination
 
 - **Lanes**: (1) UI/template → `template.html` on `claude/state`; (2) scoring/pipeline →

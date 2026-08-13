@@ -24,19 +24,43 @@ NTFY = "https://ntfy.sh/harris-stockdash-3cb22f88"
 PAGES_URL = "https://valuetally.com/"
 os.makedirs(f"{OUT}/ck", exist_ok=True)
 
+# Yahoo circuit breaker (2026-08-13): when Yahoo rate-limits GitHub's runner
+# IP ranges (happened 2026-08-06, 5 straight runs killed at the workflow
+# timeout), the patient retry ladder must not turn an upstream brownout into
+# a dead publish. After 3 CONSECUTIVE Yahoo failures we stop retrying
+# (single attempt each); after 12 the circuit opens and every further Yahoo
+# call this run returns None immediately — tickers carry stored data forward
+# and the run publishes with an honest live=N count. Finnhub is unaffected.
+_YCB = {"fails": 0, "open": False}
+
+
 def get(url, headers=None, retries=4):
+    yahoo = "yahoo.com" in url
+    if yahoo:
+        if _YCB["open"]:
+            return None
+        if _YCB["fails"] >= 3:
+            retries = 0
     for i in range(retries + 1):
         try:
             req = urllib.request.Request(url, headers=headers or {})
             with urllib.request.urlopen(req, timeout=20) as r:
+                if yahoo:
+                    _YCB["fails"] = 0
                 return json.loads(r.read().decode())
         except urllib.error.HTTPError as e:
-            if i == retries: return None
+            if i == retries: break
             ra = e.headers.get("Retry-After") if e.headers else None
-            time.sleep(min(int(ra) if (ra and str(ra).isdigit()) else 2 ** (i + 1), 60))
+            time.sleep(min(int(ra) if (ra and str(ra).isdigit()) else 2 ** (i + 1), 15 if yahoo else 60))
         except Exception:
-            if i == retries: return None
+            if i == retries: break
             time.sleep(2 ** i)
+    if yahoo:
+        _YCB["fails"] += 1
+        if _YCB["fails"] >= 12 and not _YCB["open"]:
+            _YCB["open"] = True
+            print("WARN: Yahoo circuit OPEN after 12 consecutive failures — carrying stored data for remaining tickers")
+    return None
 
 FH_PACE = float(os.environ.get("FINNHUB_PACE", "1.1"))  # ~55 Finnhub calls/min, under the free-tier 60/min limit
 
@@ -248,6 +272,13 @@ def build_record(ticker, sym):
         d["iv"], d["expMove"], d["optExp"] = _o.get("iv"), _o.get("em"), _o.get("exp")
     else:
         d["iv"] = d["expMove"] = d["optExp"] = None
+    # dividend calendar (2026-08-13, daily_analyst calendarEvents fetch):
+    # upcoming ex-dividend/payment dates; stale past dates ship for 5 days
+    # (an ex-div that just passed is still informative), older are dropped
+    _dc = (analyst.get(ticker) or {}).get("dcal")
+    _cut = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=5)).strftime("%Y-%m-%d")
+    d["exDiv"] = _dc.get("ex") if isinstance(_dc, dict) and (_dc.get("ex") or "") >= _cut else None
+    d["divPay"] = _dc.get("pay") if isinstance(_dc, dict) and (_dc.get("pay") or "") >= _cut else None
     # daily % change: latest-session move from the daily closes (Yahoo's 2y-range
     # meta carries no usable previousClose); Finnhub dp only on quote fallback
     d["dayChange"] = None
@@ -845,7 +876,8 @@ wrapped = ('<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n'
            + final[:i] + "\n</head>\n<body>\n" + final[i:] + "\n</body>\n</html>\n")
 open(f"{OUT}/index.html", "w").write(wrapped)
 
-print(f"OK live={live}/{len(records)} changed={changed} buy={buy} sell={sell} historyShardsWritten={lh_written} finnhubFallbacks={FB_STATE['n']}")
+print(f"OK live={live}/{len(records)} changed={changed} buy={buy} sell={sell} historyShardsWritten={lh_written} finnhubFallbacks={FB_STATE['n']}"
+      + (" YAHOO-CIRCUIT-OPEN" if _YCB["open"] else ""))
 # hourly STATUS ping (owner request 2026-07-24): market pulse + score movement
 # + watchlist + pipeline health in one glanceable notification
 _mv = [d for d in records if isinstance(d.get("dayChange"), (int, float))]

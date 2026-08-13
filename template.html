@@ -863,6 +863,17 @@
     </div>
 
     <div class="card" style="margin-bottom:16px;">
+      <button class="earn-head" id="divHead" type="button" aria-expanded="false">
+        <span class="section-title" style="margin:0" id="divHeadLabel">Upcoming ex-dividend dates</span>
+        <span class="earn-chev">▾</span>
+      </button>
+      <div id="divBody" hidden>
+        <div class="section-sub">Buy before the ex-dividend date to receive the next payout. Dates from Yahoo's calendar; payment dates shown where known.</div>
+        <div id="divList"></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;">
       <button class="earn-head" id="recentEarnHead" type="button" aria-expanded="false">
         <span class="section-title" style="margin:0" id="recentEarnHeadLabel">Recent earnings</span>
         <span class="earn-chev">▾</span>
@@ -1904,6 +1915,28 @@ function wireEarnToggle(headId, bodyId){
     head.setAttribute('aria-expanded', String(!body.hidden));
   });
 }
+// dividend calendar (2026-08-13): exDiv/divPay ship as slim fields from the
+// daily calendarEvents prefetch — collapsed card, same pattern as earnings
+function renderDivCalendar(){
+  const today = isoDaysFromNow(0), horizon = isoDaysFromNow(14);
+  const up = DATA.filter(d => d.exDiv && d.exDiv >= today && d.exDiv <= horizon)
+    .sort((a,b) => a.exDiv.localeCompare(b.exDiv) || (b.divYield||0) - (a.divYield||0));
+  wireEarnToggle('divHead', 'divBody');
+  const lbl = document.getElementById('divHeadLabel');
+  if (lbl) lbl.innerHTML = up.length
+    ? `Upcoming ex-dividend dates <span class="earn-count">— ${up.length} stock${up.length === 1 ? '' : 's'} in the next two weeks</span>`
+    : `Upcoming ex-dividend dates <span class="earn-count">— none in the next two weeks</span>`;
+  const list = document.getElementById('divList');
+  if (!list) return;
+  list.innerHTML = up.map(d => `
+    <div class="sec-mrow" data-divt="${escHtml(d.ticker)}" style="cursor:pointer">
+      <b>${escHtml(d.ticker)}</b>
+      <span class="mname">${escHtml(d.name || '')}</span>
+      <span style="white-space:nowrap">${escHtml(d.exDiv)}${d.divPay ? ` <span style="color:var(--text-muted)">· pays ${escHtml(d.divPay)}</span>` : ''}${d.divYield != null ? ` <span style="color:var(--text-muted)">· ${fmtNum(d.divYield)}% yld</span>` : ''}</span>
+    </div>`).join('') || '<div class="section-sub">Nothing scheduled.</div>';
+  list.querySelectorAll('[data-divt]').forEach(el =>
+    el.addEventListener('click', () => selectStock(el.getAttribute('data-divt'))));
+}
 function renderEarnings(){
   const today = isoDaysFromNow(0), horizon = isoDaysFromNow(7);
   const upcoming = DATA.filter(d => d.earnings && d.earnings.nextDate && d.earnings.nextDate >= today && d.earnings.nextDate <= horizon
@@ -1936,6 +1969,7 @@ function renderEarnings(){
   hookEarnCards(list);
 }
 renderEarnings();
+renderDivCalendar();
 
 function renderRecentEarnings(){
   const list = document.getElementById('recentEarningsList');
@@ -2027,6 +2061,7 @@ const COLS = [
   {key:'pb', label:'P/B', align:'right'},
   {key:'evEbitda', label:'EV/EBITDA', align:'right'},
   {key:'divYield', label:'Div Yld', align:'right'},
+  {key:'exDiv', label:'Ex-div', align:'right', optOnly:true, tip:'Next ex-dividend date (Yahoo calendar; recent past dates shown for a few days)'},
   {key:'roe', label:'ROE', align:'right'},
   {key:'upside', label:'Upside', align:'right'},
   {key:'valueScore', label:'Value Score', align:'right', tip:'RELATIVE — cheapness vs peers, adjusted for sector norms (higher = cheaper)'},
@@ -2045,7 +2080,8 @@ const COMPACT_COLS = new Set(['rank','ticker','price','dayChange','spark','marke
 let customCols = null;
 try { const _cc = JSON.parse(localStorage.getItem('vt-cols') || 'null'); if (Array.isArray(_cc) && _cc.length) customCols = new Set(_cc); } catch(e){}
 const visibleCols = () => customCols ? COLS.filter(c => c.key === 'ticker' || customCols.has(c.key))
-                        : colMode === 'compact' ? COLS.filter(c => COMPACT_COLS.has(c.key)) : COLS;
+                        : colMode === 'compact' ? COLS.filter(c => COMPACT_COLS.has(c.key))
+                        : COLS.filter(c => !c.optOnly);   // optOnly: picker-only columns (ex-div)
 
 let sortKey = 'valueScore', sortDir = -1;
 let activeFilter = 'all';
@@ -2140,6 +2176,7 @@ function renderBody(){
     pb: d => `<td>${d.pb!==null?fmtNum(d.pb)+'×':'—'}</td>`,
     evEbitda: d => `<td>${d.evEbitda!==null?fmtNum(d.evEbitda)+'×':'—'}</td>`,
     divYield: d => `<td>${d.divYield!==null?fmtNum(d.divYield)+'%':'—'}</td>`,
+    exDiv: d => `<td style="white-space:nowrap">${d.exDiv || '—'}</td>`,
     roe: d => `<td>${d.roe!==null?fmtNum(d.roe)+'%':'—'}</td>`,
     upside: d => `<td class="${d.upside!==null?(d.upside>=0?'pos':'neg'):''}">${fmtPct(d.upside)}</td>`,
     valueScore: d => `<td><b>${fmtNum(d.valueScore)}</b></td>`,
@@ -2935,11 +2972,13 @@ function renderDetailCard(d){
     ${renderTechnicalSection(d)}
     ${renderEarningsSection(d)}
     ${peersBlock(d)}
+    <div id="dcStakes"></div>
     <div class="news-wrap" id="newsWrap" data-ticker="${d.ticker}"></div>
   `;
   card.classList.add('open');
   drawPriceHistory(d);
   drawNews(d);
+  renderCardStakes(d.ticker);
   document.getElementById('detailClose').addEventListener('click', () => {
     card.classList.remove('open');
     document.querySelectorAll('#scatter .bubble').forEach(el => el.classList.remove('bubble-highlight'));
@@ -3072,7 +3111,7 @@ function applyHash(){
   }
   const link = t => `<a href="#${escHtml(t)}">${escHtml(NAME[t] || t)}</a>`;
   const fmtShares = n => n >= 1e9 ? (n / 1e9).toFixed(2) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'K' : String(n);
-  const moreBtn = e => e.url ? `<button class="sk-more-btn" data-skd="${escHtml(e.url)}" data-skform="${escHtml(e.form)}">Details ▾</button>` : '';
+  const moreBtn = e => e.url ? `<button class="sk-more-btn" data-skd="${escHtml(e.url)}" data-skform="${escHtml(e.form)}" data-skt="${escHtml(e.t)}" data-skfiler="${escHtml(e.filer || '')}">Details ▾</button>` : '';
   function card(e){
     const cls = e.sig >= 85 ? 'sk-deal' : e.sig >= 60 ? 'sk-strat' : '';
     const isNew = ageDays(e.d) <= 2;
@@ -3110,12 +3149,15 @@ function applyHash(){
       ' · Passive index-fund churn ranks low by design; amendments repeating within 3 weeks are collapsed.';
   }
   function load(){
-    if (SK || fetching) return;
-    fetching = fetch('stakes-data.json').then(r => { if (!r.ok) throw 0; return r.json(); })
-      .then(j => { SK = j; render(); })
+    if (SK) return Promise.resolve(SK);
+    if (!fetching) fetching = fetch('stakes-data.json').then(r => { if (!r.ok) throw 0; return r.json(); })
+      .then(j => { SK = j; render(); return j; })
       .catch(() => { document.getElementById('skTop').innerHTML =
-        '<div class="section-sub">Stake data isn\'t available yet — it appears after the next daily pipeline run.</div>'; });
+        '<div class="section-sub">Stake data isn\'t available yet — it appears after the next daily pipeline run.</div>'; return null; });
+    return fetching;
   }
+  // small API for the detail card's "Ownership & deals" strip (2026-08-13)
+  window.__stakes = { load, line };
   // click-in filing details: Worker fetches the filing (EDGAR/FCA) and
   // compresses it to key-fact bullets; immutable → cached hard on both ends
   const SK_BULLETS = {};
@@ -3139,6 +3181,28 @@ function applyHash(){
       box.innerHTML = (j.bullets && j.bullets.length)
         ? '<ul>' + j.bullets.map(x => '<li>' + escHtml(x) + '</li>').join('') + '</ul>'
         : 'Couldn’t summarize this filing — use the Filing link for the original.';
+      // ownership timeline (2026-08-13): this filer's reported percent over
+      // time in this stock, from the events we already hold client-side
+      const _t = btn.dataset.skt, _f = btn.dataset.skfiler;
+      if (SK && _t && _f) {
+        const ser = (SK.events || []).filter(x => x.t === _t && !x.subject && x.pct != null
+            && (x.filer || '').toLowerCase() === _f.toLowerCase())
+          .map(x => ({ d: x.d, p: x.pct })).sort((a, b) => a.d.localeCompare(b.d));
+        if (ser.length >= 2) {
+          const W = 280, H = 64, P = 8;
+          const lo = Math.min(...ser.map(s => s.p)), hi = Math.max(...ser.map(s => s.p));
+          const y = v => hi === lo ? H / 2 : P + (H - 2 * P) * (1 - (v - lo) / (hi - lo));
+          const x = i => P + (W - 2 * P) * (ser.length === 1 ? 0 : i / (ser.length - 1));
+          const pts = ser.map((s, i) => `${x(i).toFixed(1)},${y(s.p).toFixed(1)}`).join(' ');
+          box.innerHTML += `<div style="margin-top:8px;font-size:11.5px;color:var(--text-muted)">${escHtml(_f)} — reported position over time</div>
+            <svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:300px;height:auto">
+              <polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="1.6"/>
+              ${ser.map((s, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(s.p).toFixed(1)}" r="2" fill="var(--accent)"/>`).join('')}
+            </svg>
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);max-width:300px">
+              <span>${escHtml(ser[0].d)} · ${ser[0].p}%</span><span>${escHtml(ser[ser.length - 1].d)} · ${ser[ser.length - 1].p}%</span></div>`;
+        }
+      }
     } catch (err) {
       box.textContent = 'Couldn’t reach the summary service — use the Filing link for the original.';
     }
@@ -3149,8 +3213,37 @@ function applyHash(){
     render();
   }));
   document.getElementById('skSearch').addEventListener('input', ev => { q = ev.target.value.trim().toLowerCase(); render(); });
-  document.addEventListener('viewchange', ev => { if (ev.detail === 'stakes') load(); });
+  document.addEventListener('viewchange', ev => {
+    if (ev.detail !== 'stakes') return;
+    // deep-link from a detail card: pre-filter to that company
+    if (window._skPending) {
+      q = String(window._skPending).toLowerCase();
+      const s = document.getElementById('skSearch');
+      if (s) s.value = window._skPending;
+      window._skPending = null;
+    }
+    load().then(() => render());
+  });
 })();
+
+// detail-card "Ownership & deals" strip (2026-08-13): latest filings for the
+// open stock, from the same stakes-data payload the tab uses
+function renderCardStakes(t){
+  const box = document.getElementById('dcStakes');
+  if (!box || !window.__stakes) return;
+  window.__stakes.load().then(sk => {
+    if (!sk) { box.innerHTML = ''; return; }
+    const evs = (sk.events || []).filter(e => e.t === t).slice(0, 3);
+    const off = (sk.offers || {})[t];
+    if (!evs.length && !off) { box.innerHTML = ''; return; }
+    box.innerHTML = `<div class="breakdown-title">Ownership &amp; deals</div>`
+      + (off ? `<div class="sk-offer">⚠ In a Takeover Code offer period — ${off.n45} dealing disclosure${off.n45 === 1 ? '' : 's'} in the last 45 days.</div>` : '')
+      + evs.map(e => `<div class="sk-line" style="margin:6px 0">${escHtml(window.__stakes.line(e))} <span style="color:var(--text-muted);font-size:11.5px">(${escHtml(e.d)})</span></div>`).join('')
+      + `<div style="font-size:12.5px;margin-top:6px"><a href="#stakes" id="dcStakesAll" style="color:var(--accent)">All filings for this stock →</a></div>`;
+    const a = document.getElementById('dcStakesAll');
+    if (a) a.addEventListener('click', () => { window._skPending = t; });
+  }).catch(() => { box.innerHTML = ''; });
+}
 
 // ---------- Compare graphs (page) ----------
 (function compareGraphs(){

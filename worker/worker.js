@@ -1146,12 +1146,47 @@ async function handleAuth(route, req, env, ctx) {
 // last-data.json (public, no vendor re-serving concern: the digest goes to
 // the user, not an API). Fired rules are stamped triggered_at only after the
 // email actually sends, so a mail failure doesn't eat the alert.
+// stake/deal events for the emails (2026-08-13): significant filings only
+// (sig>=60 — deals + activist 13Ds; passive index churn never emails anyone)
+const SK_MAIL_LABEL = {
+  'TENDER': 'tender offer for the company', '14D9': 'board response to a tender offer',
+  'GOING-PRIVATE': 'going-private filing', 'MERGER-PROXY': 'merger proxy filed',
+  'MERGER-REG': 'merger registration (S-4)', 'MERGER-COMM': 'deal communication (Rule 425)',
+  'BANKRUPTCY': 'bankruptcy/receivership 8-K', 'COMPLETED-ACQ': 'acquisition or disposal completed',
+  'CAPITAL-REORG': 'capital reorganisation', 'ACQUISITION': 'acquisition announced',
+  'DISPOSAL': 'disposal announced', 'OFFER-BY': 'offer announced', 'OFFER-FOR': 'takeover offer for the company',
+  'POSSIBLE-OFFER': 'possible-offer statement', 'OFFER-REJECTED': 'offer rejected',
+  'OFFER-UPDATE': 'offer update', 'PANEL-STATEMENT': 'Takeover Panel statement',
+  'COMPULSORY-ACQ': 'compulsory share acquisition', 'TENDER-RESULT': 'tender offer result',
+  '13D': 'new activist stake (Schedule 13D)', '13D/A': 'activist stake updated (13D/A)',
+};
+function skMailWord(e) {
+  if (e.subject) return `discloses a stake in ${e.subject}${e.pct != null ? ` (${e.pct}%)` : ''}`;
+  const base = SK_MAIL_LABEL[e.form] || e.form;
+  return (e.filer ? e.filer + ' — ' : '') + base + (e.pct != null ? ` at ${e.pct}%` : '')
+    + (e.terms ? ` · ${e.terms}` : (e.note ? ` · ${String(e.note).slice(0, 110)}` : ''));
+}
+async function recentStakeEvents(ctx, days, minSig) {
+  try {
+    const sk = await stateJson('stakes-state.json', ctx);
+    const cut = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+    const out = {};
+    for (const [t, ent] of Object.entries(sk.byTicker || {})) {
+      for (const e of ent.events || []) {
+        if (e.d >= cut && (e.sig || 0) >= minSig) (out[t] = out[t] || []).push(e);
+      }
+    }
+    return out;
+  } catch (e) { return {}; }
+}
+
 async function sendDigests(env, ctx) {
   if (!env.DB || !env.RESEND_API_KEY) return;
   const r = await fetch(STATE_RAW + 'last-data.json');
   if (!r.ok) return;
   const by = {};
   for (const d of await r.json()) by[d.ticker] = d;
+  const stakesBy = await recentStakeEvents(ctx, 1, 60);  // today + yesterday's filings
   // LEFT JOIN: a user with custom rules but no watchlist still gets alerts
   const users = (await env.DB.prepare(
     'SELECT u.id, u.email, u.unsub_token, w.tickers FROM users u LEFT JOIN watchlists w ON w.user_id = u.id WHERE u.alerts = 1 AND u.verified = 1'
@@ -1196,7 +1231,12 @@ async function sendDigests(env, ctx) {
       if (typeof v !== 'number') continue;
       if (rl.kind.endsWith('_above') ? v >= rl.threshold : v <= rl.threshold) fired.push({ rl, d, v });
     }
-    if (!events.length && !fired.length) continue;
+    // significant stake/deal filings on starred stocks (2026-08-13)
+    const deals = [];
+    for (const t of list) {
+      for (const e of stakesBy[t] || []) deals.push({ t, name: (by[t] && by[t].name) || t, e });
+    }
+    if (!events.length && !fired.length && !deals.length) continue;
     const rows = events.map(({ d, notes }) => `
       <tr><td style="padding:9px 0;border-bottom:1px solid #eef1f6"><b>${d.ticker}</b> <span style="color:#7d8595">${(d.name || '').slice(0, 28)}</span><br>
       <span style="font-size:13px;color:#4c5566">${notes.join(' · ')}</span></td>
@@ -1205,16 +1245,21 @@ async function sendDigests(env, ctx) {
       <tr><td style="padding:9px 0;border-bottom:1px solid #eef1f6"><b>${d.ticker}</b> <span style="color:#7d8595">${(d.name || '').slice(0, 28)}</span><br>
       <span style="font-size:13px;color:#4c5566">your alert: ${RULE_TEXT[rl.kind]} ${rl.threshold} (now ${typeof v === 'number' ? Math.round(v * 100) / 100 : v})</span></td>
       <td style="padding:9px 0;border-bottom:1px solid #eef1f6;text-align:right;white-space:nowrap">${d.price != null ? d.price : ''}</td></tr>`).join('');
-    const html = mailWrap(`<p style="margin:0 0 4px;font-size:17px;font-weight:700">${events.length ? 'Your watchlist today' : 'Your alerts fired'}</p>
-      <p style="margin:6px 0 10px;color:#4c5566;font-size:13.5px">${events.length ? 'Stocks you follow that moved meaningfully' : 'Alert rules you set were hit today'} — full picture on <a href="${SITE}#watchlist" style="color:#1e4f91">your watchlist</a>.</p>
+    const html = mailWrap(`<p style="margin:0 0 4px;font-size:17px;font-weight:700">${events.length ? 'Your watchlist today' : fired.length ? 'Your alerts fired' : 'Filings on your watchlist'}</p>
+      <p style="margin:6px 0 10px;color:#4c5566;font-size:13.5px">${events.length ? 'Stocks you follow that moved meaningfully' : fired.length ? 'Alert rules you set were hit today' : 'Stake or deal filings landed on stocks you follow'} — full picture on <a href="${SITE}#watchlist" style="color:#1e4f91">your watchlist</a>.</p>
       ${rows ? `<table style="width:100%;border-collapse:collapse;font-size:14.5px">${rows}</table>` : ''}
       ${fRows ? `<p style="margin:${rows ? '14px' : '0'} 0 4px;font-size:13px;font-weight:700;color:#1c2534">Your alerts</p>
       <table style="width:100%;border-collapse:collapse;font-size:14.5px">${fRows}</table>
       <p style="font-size:12px;color:#7d8595;margin:8px 0 0">Fired alerts pause until you re-arm them on the site.</p>` : ''}
+      ${deals.length ? `<p style="margin:14px 0 4px;font-size:13px;font-weight:700;color:#1c2534">Stake &amp; deal filings on your watchlist</p>
+      <table style="width:100%;border-collapse:collapse;font-size:14.5px">${deals.map(({ t, name, e }) => `
+        <tr><td style="padding:9px 0;border-bottom:1px solid #eef1f6"><b>${t}</b> <span style="color:#7d8595">${String(name).slice(0, 28)}</span><br>
+        <span style="font-size:13px;color:#4c5566">${skMailWord(e)} <span style="color:#7d8595">(${e.d})</span></span></td></tr>`).join('')}</table>
+      <p style="font-size:12px;color:#7d8595;margin:8px 0 0">Full history on the site's <a href="${SITE}#stakes" style="color:#7d8595">Stakes page</a>.</p>` : ''}
       <p style="font-size:12px;color:#7d8595;margin:14px 0 0">Mechanical screen, not investment advice. <a href="https://api.valuetally.com/alerts/unsubscribe?u=${u.unsub_token}" style="color:#7d8595">Unsubscribe from these alerts</a>.</p>`);
-    const subjTicks = [...new Set([...events.map(e => e.d.ticker), ...fired.map(f => f.d.ticker)])];
+    const subjTicks = [...new Set([...events.map(e => e.d.ticker), ...fired.map(f => f.d.ticker), ...deals.map(x => x.t)])];
     try {
-      await sendMail(env, u.email, 'ValueTally ' + (events.length ? 'watchlist' : 'alert') + ': ' + subjTicks.slice(0, 4).join(', ') + (subjTicks.length > 4 ? '…' : ''), html);
+      await sendMail(env, u.email, 'ValueTally ' + (events.length ? 'watchlist' : fired.length ? 'alert' : 'filings') + ': ' + subjTicks.slice(0, 4).join(', ') + (subjTicks.length > 4 ? '…' : ''), html);
       const now = Math.floor(Date.now() / 1000);
       for (const f of fired) {
         try { await env.DB.prepare('UPDATE alert_rules SET triggered_at = ? WHERE id = ?').bind(now, f.rl.id).run(); } catch (e) { /* re-fires tomorrow */ }
@@ -1420,6 +1465,21 @@ async function sendWeekly(env, ctx) {
         (inn.length || outt.length ? ` — this week in: ${inn.join(', ') || 'none'}; out: ${outt.join(', ') || 'none'}.` : ' — unchanged this week.') + '</p>';
     }
   } catch (e) { /* optional section */ }
+  // deals & stake building this week (2026-08-13): top significant filings
+  // across the whole universe, one line each, best event per company
+  let dealsBlock = '';
+  try {
+    const stakesBy = await recentStakeEvents(ctx, 7, 60);
+    const top = Object.entries(stakesBy)
+      .map(([t, evs]) => ({ t, e: evs.sort((a, b) => (b.sig || 0) - (a.sig || 0) || (b.d < a.d ? -1 : 1))[0] }))
+      .sort((a, b) => (b.e.sig || 0) - (a.e.sig || 0)).slice(0, 5);
+    if (top.length) {
+      dealsBlock = `<p style="margin:14px 0 4px;font-size:13px;font-weight:700;color:#1c2534">Deals &amp; stake building this week</p>
+      <table style="width:100%;border-collapse:collapse;font-size:14px">${top.map(({ t, e }) => `
+        <tr><td style="padding:6px 0;border-bottom:1px solid #eef1f6"><b>${t}</b> <span style="color:#7d8595">${((by[t] || {}).name || '').slice(0, 26)}</span><br>
+        <span style="font-size:12.5px;color:#4c5566">${skMailWord(e)} <span style="color:#7d8595">(${e.d})</span></span></td></tr>`).join('')}</table>`;
+    }
+  } catch (e) { /* optional section */ }
   const users = (await env.DB.prepare(
     'SELECT u.id, u.email, u.unsub_token, w.tickers FROM users u JOIN watchlists w ON w.user_id = u.id WHERE u.alerts = 1 AND u.verified = 1'
   ).all()).results || [];
@@ -1437,6 +1497,7 @@ async function sendWeekly(env, ctx) {
       <p style="margin:14px 0 4px;font-size:13px;font-weight:700;color:#1c2534">Worst of the universe</p>
       <table style="width:100%;border-collapse:collapse;font-size:14px">${wk.slice(-5).reverse().map(li).join('')}</table>
       ${wlLine}
+      ${dealsBlock}
       <p style="font-size:12px;color:#7d8595;margin:16px 0 0">Mechanical screen, not investment advice. <a href="https://api.valuetally.com/alerts/unsubscribe?u=${u.unsub_token}" style="color:#7d8595">Unsubscribe from these emails</a>.</p>`);
     try { await sendMail(env, u.email, 'Your ValueTally weekly wrap', html); } catch (e) { /* next user */ }
   }

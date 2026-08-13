@@ -179,15 +179,23 @@ try:
 except Exception as e:
     op = crumb = None
     print("targets: crumb failed:", e)
-tgt_ok = 0
+tgt_ok = dcal_ok = 0
 ref_prices = {}  # live native-listing price per ticker — refresh.py's marketCap drift anchor
+try:
+    prior_dcal = {t: v.get("dcal") for t, v in by.items() if v.get("dcal")}
+except Exception:
+    prior_dcal = {}
 for ticker, _sym in pairs:
     tgt = prior_targets.get(ticker)
+    dcal = prior_dcal.get(ticker)
     if op:
         try:
+            # calendarEvents rides the same request as the price targets
+            # (dividend calendar, 2026-08-13): ex-dividend + payment dates
             u = (f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/"
-                 f"{urllib.parse.quote(ticker)}?modules=financialData&crumb={urllib.parse.quote(crumb)}")
-            fd = json.loads(op.open(u, timeout=15).read().decode())["quoteSummary"]["result"][0]["financialData"]
+                 f"{urllib.parse.quote(ticker)}?modules=financialData%2CcalendarEvents&crumb={urllib.parse.quote(crumb)}")
+            r0 = json.loads(op.open(u, timeout=15).read().decode())["quoteSummary"]["result"][0]
+            fd = r0.get("financialData") or {}
             mean = (fd.get("targetMeanPrice") or {}).get("raw")
             n = (fd.get("numberOfAnalystOpinions") or {}).get("raw")
             cur = (fd.get("currentPrice") or {}).get("raw")
@@ -195,12 +203,21 @@ for ticker, _sym in pairs:
             if mean and n and n >= 3:
                 tgt = {"mean": round(mean, 2), "analysts": n, "yPrice": round(cur, 3) if cur else None}
                 tgt_ok += 1
+            cal = r0.get("calendarEvents") or {}
+            _ex = (cal.get("exDividendDate") or {}).get("raw")
+            _pay = (cal.get("dividendDate") or {}).get("raw")
+            if _ex or _pay:
+                _iso = lambda ts: datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).strftime("%Y-%m-%d") if ts else None
+                dcal = {"ex": _iso(_ex), "pay": _iso(_pay)}
+                dcal_ok += 1
         except Exception:
             pass
         time.sleep(0.4)
     if ticker in by and tgt:
         by[ticker]["target"] = tgt
-print(f"targets: {tgt_ok}/{len(pairs)} fetched live")
+    if ticker in by and dcal:
+        by[ticker]["dcal"] = dcal
+print(f"targets: {tgt_ok}/{len(pairs)} fetched live; dividend dates: {dcal_ok}")
 
 # ---------- options-implied metrics (Yahoo options chain, 2026-07-28) ----------
 # Uses the US-LISTED symbol (native for US rows, the ADR for EU rows — many
