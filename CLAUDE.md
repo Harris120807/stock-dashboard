@@ -1027,3 +1027,51 @@ edit: extract `<script>` contents, `node --check` them, then republish via
 - RESOLVED 2026-07-24: the Global API Key was rolled by the owner; deploys now
   use a scoped Workers-edit token and analytics a scoped Analytics:Read token
   (both owner-held, pasted in-session when needed — never committed).
+
+## Terminal redesign (2026-08-14, owner-approved)
+
+- **"Ice terminal" look shipped to template.html** (owner approved the
+  Terminal concept from the design mockups, explicitly NOT the amber
+  Bloomberg palette). Ported natively into the template's own CSS — there is
+  no override-sandwich; the original rules were edited.
+- **DARK IS NOW THE DEFAULT THEME; light is the alternate.** The four token
+  blocks inverted roles: base `.viz-root` = dark (#0a0e14 page, #101620
+  surfaces, cyan accent #3fb6dd), `@media (prefers-color-scheme: light)` =
+  light "cold paper" (#eef1f5 page, white cards, accent #177ba3), plus both
+  `data-theme` pins. Unstamped visitors follow the system preference with
+  dark as the no-preference ground. Two NEW tokens exist in ALL FOUR blocks:
+  `--chrome` (rail/status-strip surface) and `--accent-ink` (text painted ON
+  an accent background — dark ink on the cyan accent in dark mode, white in
+  light mode; every former hardcoded `color:#fff`-on-accent uses it). `body`
+  gets an explicit per-theme background (tokens live on .viz-root, so
+  overscroll would otherwise show UA color). The e-chip/news-tag/mkt-stale
+  hardcodes were replaced with color-mix on --warning/--good/--critical — no
+  color may exist in only one theme's block.
+- **Typography**: `--mono` (ui-monospace stack) + tabular-nums applied to all
+  DATA surfaces via one grouped selector list near the top of the style block
+  (tables, KPI values, prices, tickers, badges, chips, axis labels, #asof…);
+  sans stays for prose (section subs, gate, notes). Radii flattened to 2-3px
+  everywhere (999px pills are gone); section titles/kpi labels/chips are
+  uppercase + letter-spaced; table cells tightened to 6px 9px.
+- **Layout, ≥1000px** (breakpoint moved from 900px): the SAME `#tabbar`
+  becomes a fixed full-height 64px left icon rail (labels 8px uppercase —
+  9px truncated PORTFOLIO/WATCHLIST at 64px width); the SAME
+  `header.page-head` becomes a fixed 44px top status strip (tagline `p` and
+  `#sourceNote` display:none there — the freshness line, NOT the attribution;
+  the "Data: Finnhub & Yahoo Finance" credit stays in the footer). `.wrap`
+  goes full-width with padding-top 60px; `.stale-banner` pins below the strip;
+  `.detail-card` has scroll-margin-top for the fixed chrome. `#view-overview.
+  active` becomes a 6-col grid: heat-strip/KPIs/grid-2 span full width,
+  watchlist + movers sit side-by-side (span 3 each via `.ov-watch` class +
+  `#moversCard`), the three calendar cards go three-up (`.ov-cal`, span 2) —
+  those classes replaced the old inline `margin-bottom:16px` styles. BELOW
+  1000px nothing structural changed: stock bottom tab bar + stacked cards,
+  new palette only.
+- **PWA/meta**: pwa/manifest.json background/theme colors → #0a0e14. The
+  `theme-color` meta lives in refresh.py's wrapper (scripts lane) and still
+  says #0a101d — pipeline lane should update it to #0a0e14 (one-line change).
+- **Traps hit**: rail width forces 8px labels (9px ellipsizes); the overview
+  grid must target `#view-overview.active` (plain `#view-overview` is
+  display:none when inactive, and showView toggles .active only); compare-
+  chart PALETTE in JS is a separate mid-saturation line palette that works on
+  both grounds — deliberately untouched (JS lane).

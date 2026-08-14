@@ -5,8 +5,8 @@
   "start_url": "/stock-dashboard/",
   "scope": "/stock-dashboard/",
   "display": "standalone",
-  "background_color": "#0a101d",
-  "theme_color": "#0a101d",
+  "background_color": "#0a0e14",
+  "theme_color": "#0a0e14",
   "icons": [
     {
       "src": "icon-192.png",
