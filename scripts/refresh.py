@@ -863,18 +863,23 @@ js = "\n".join(re.findall(r"<script>(.*?)</script>", final, re.S))
 open(f"{OUT}/check.js", "w").write(js)
 subprocess.run(["node", "--check", f"{OUT}/check.js"], check=True)
 i = final.index("</style>") + len("</style>")
+# Asset links are absolute since the multi-product split (2026-08-15): the
+# retail app serves from /app/ while manifest/icons stay at the site root
 wrapped = ('<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n'
            '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
            '<title>ValueTally</title>\n'
-           '<link rel="manifest" href="manifest.json">\n'
+           '<link rel="manifest" href="/manifest.json">\n'
            '<meta name="theme-color" content="#0a0e14">\n'
-           '<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">\n'
-           '<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">\n'
-           '<link rel="apple-touch-icon" href="apple-touch-icon.png">\n'
+           '<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">\n'
+           '<link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png">\n'
+           '<link rel="apple-touch-icon" href="/apple-touch-icon.png">\n'
            '<meta name="apple-mobile-web-app-capable" content="yes">\n'
            '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">\n'
            + final[:i] + "\n</head>\n<body>\n" + final[i:] + "\n</body>\n</html>\n")
 open(f"{OUT}/index.html", "w").write(wrapped)
+# slim data as a standalone file for the pro layouts (/command /wall /ledger)
+# — same array the retail page embeds, no new data exposure
+open(f"{OUT}/data.json", "w").write(data_json)
 
 print(f"OK live={live}/{len(records)} changed={changed} buy={buy} sell={sell} historyShardsWritten={lh_written} finnhubFallbacks={FB_STATE['n']}"
       + (" YAHOO-CIRCUIT-OPEN" if _YCB["open"] else ""))
