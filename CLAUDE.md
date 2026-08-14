@@ -1075,3 +1075,48 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   display:none when inactive, and showView toggles .active only); compare-
   chart PALETTE in JS is a separate mid-saturation line palette that works on
   both grounds — deliberately untouched (JS lane).
+
+## Terminal follow-ups (2026-08-14 evening, owner-approved batch)
+
+- **PWA icons recolored** to the terminal palette: same brand-arrow mark (the
+  header's brandGrad shape — NOTE: the mark is the arrow, not the "ascending
+  bars" older notes mention), same filenames/sizes/safe-zone placement
+  (icon-192/512 maskable at ~52% mark width, apple-touch at ~64%), bg #0a0e14,
+  gradient #3fb6dd→#7fd4f2 in the logo's direction. Generated with cairosvg
+  from the exact SVG path; manifest.json colors were already #0a0e14.
+- **"Ownership & deals" promoted to a first-class panel** (`.dc-stakes`):
+  `#dcStakes` moved up the detail card — directly after `scoreNarrative()`
+  (Main drivers), before the breakdowns/technicals/peers. Accent left border,
+  accent-tinted surface, uppercase title; up to 4 events (was 3), each with a
+  form tag (`window.__stakes.tag`, new) + right-aligned mono date; offer-period
+  banner gets a warning-tinted `.dcs-offer`. Still renders nothing when a
+  stock has no events; `_skPending` deep-link wiring unchanged. On <640px the
+  filing text takes the full line and tag+date wrap beneath.
+- **Watchlist tab → TWS-style quote grid**: columns Star | Ticker (tiny name
+  beneath) | Last | Chg% | Chg (abs, derived from price+dayChange) | Wk% |
+  Score | Q(uintile); ~32px rows, hairline separators, styling scoped to
+  `#wlTable` (the td:first-child trap). WL_SORT kept — `dayAbs` sorts via a
+  derived getter. **Live tick flashes**: `WL_LAST` map remembers each ticker's
+  last RENDERED price; the 45s poller's existing `renderWatchlistView()` call
+  makes changed rows' Last+Chg% cells re-mount with `.wl-up`/`.wl-dn`
+  (600ms background pulse via keyframes, disabled under
+  prefers-reduced-motion). Renders >90s apart rebase silently so re-entering
+  the tab doesn't flash everything. Chg%/Wk%/Chg are persistently pos/neg
+  colored; Last only flashes. Signed-out prompt, add-box, star wiring, D1
+  write-through, system chips, My-alerts card all untouched.
+- **Divbar (Most Under/Overvalued) densified** — root cause found: density
+  keyed on container width <480px, and the redesign's grid-2 column is ~456px
+  on desktop, so desktops rendered the airy touch layout. Now keys on
+  `(pointer: coarse)`: fine pointers get 21px rows / 8px bars / rx 1 /10.5px
+  labels; touch keeps 28px/11px. List is ~340px tall on desktop (was ~640).
+- **Sectors view filters** (`#secControls`, standard `.controls` chrome):
+  sector-name search, region chips All/US/UK&EU (screener's `isEuRow` proxy —
+  ARM/SPOT count US), sort select (total cap default / member count / median
+  combined / median P/E asc / avg day move; nulls last). Region filtering
+  recomputes every aggregate over filtered members only; empty sectors drop;
+  `#secCount` shows sectors·stocks; the top-12 expander works against the
+  filtered+sorted result.
+- Test harness: `mini/e2e-followup.mjs` (serves mini root so /out-test and
+  /out-before coexist) — injects a fake `vt-session` + route-fulfills
+  `/me` & `/me/rules` to exercise the signed-in grid, and simulates a live
+  tick by mutating DATA + calling renderWatchlistView in page context.

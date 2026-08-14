@@ -392,6 +392,23 @@
   .sk-meta a { color: var(--accent); text-decoration: none; }
   .sk-offer { border: 1px solid var(--warning); border-radius: 3px; padding: 8px 12px; margin: 8px 0; font-size: 13px; }
   .sk-table td, .sk-table th { padding: 7px 10px; font-size: 12.5px; }
+  /* detail-card "Ownership & deals" panel (2026-08-14 promotion) */
+  .dc-stakes {
+    border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 3px;
+    background: color-mix(in srgb, var(--accent) 4%, var(--surface-1));
+    padding: 10px 14px 11px; margin: 16px 0 6px;
+  }
+  .dc-stakes .dcs-title { font-size: 11px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 7px; }
+  .dc-stakes .dcs-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 5px 0; font-size: 12.5px; border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
+  .dc-stakes .dcs-line:first-of-type { border-top: none; }
+  /* narrow: filing text takes the full line, tag + date wrap beneath; wide: one row */
+  .dc-stakes .dcs-txt { color: var(--text-secondary); min-width: 0; flex: 1 1 100%; }
+  @media (min-width: 640px){ .dc-stakes .dcs-txt { flex: 1 1 0; } }
+  .dc-stakes .dcs-tag { flex: none; font-size: 10.5px; padding: 1px 7px; white-space: nowrap; color: var(--text-muted); }
+  .dc-stakes .dcs-date { flex: none; margin-left: auto; font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+  .dc-stakes .dcs-offer { background: color-mix(in srgb, var(--warning) 13%, transparent); color: var(--text-primary); font-weight: 600; margin: 2px 0 8px; }
+  .dc-stakes .dcs-all { margin-top: 7px; font-size: 12px; }
+  .dc-stakes .dcs-all a { color: var(--accent); text-decoration: none; }
   @media (max-width: 480px){
     .nav-tab span:last-child { display: none; }   /* 10 tabs: icons only on narrow phones */
     .nav-tab { gap: 0; padding: 9px 0; }
@@ -402,6 +419,21 @@
   .wl-add-row:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
   .wl-add-row .wl-add-name { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
   .wl-chip.buy { color: var(--good); } .wl-chip.sell { color: var(--critical); }
+  /* TWS-style watchlist quote grid (2026-08-14) — scoped to #wlTable */
+  #wlTable tbody td { padding: 3px 9px; font-size: 12.5px; border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent); }
+  #wlTable tbody tr { cursor: pointer; }
+  #wlTable tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+  #wlTable .wl-starcell { width: 26px; padding: 2px 2px 2px 4px; }
+  #wlTable .wl-tick b { display: block; font-weight: 700; letter-spacing: .02em; line-height: 1.15; }
+  #wlTable .wl-tick .wl-name { display: block; font-size: 9.5px; line-height: 1.15; color: var(--text-muted); max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #wlTable .wl-q { color: var(--text-muted); }
+  @keyframes wlFlashUp { 0% { background-color: color-mix(in srgb, var(--good) 28%, transparent); } 100% { background-color: transparent; } }
+  @keyframes wlFlashDn { 0% { background-color: color-mix(in srgb, var(--critical) 28%, transparent); } 100% { background-color: transparent; } }
+  #wlTable td.wl-up { animation: wlFlashUp .6s ease-out; }
+  #wlTable td.wl-dn { animation: wlFlashDn .6s ease-out; }
+  @media (prefers-reduced-motion: reduce){
+    #wlTable td.wl-up, #wlTable td.wl-dn { animation: none; }
+  }
   /* ---- portfolio (Trading 212) ---- */
   #pfTable td, #pfTable th { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; font-size: 13.5px; white-space: nowrap; }
   #pfTable td.num, #pfTable th.num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -1100,7 +1132,22 @@
     <main class="view" id="view-sectors">
       <div class="card">
         <div class="section-title">Sectors</div>
-        <div class="section-sub">Every sector in the covered set, largest first. Medians are within-sector; scores are the sector-relative combined scores. Tap a sector to see all its members.</div>
+        <div class="section-sub">Every sector in the covered set. Medians are within-sector; scores are the sector-relative combined scores. Tap a sector to see all its members.</div>
+        <div class="controls" id="secControls">
+          <input type="search" id="secSearch" placeholder="Search sectors…" />
+          <div class="chip active" data-secreg="all">All</div>
+          <div class="chip" data-secreg="us">US</div>
+          <div class="chip" data-secreg="eu">UK &amp; EU</div>
+          <select class="sec-hi" id="secSort" aria-label="Sort sectors">
+            <option value="cap">Largest first (total mkt cap)</option>
+            <option value="n">Most members first</option>
+            <option value="score">Median combined score</option>
+            <option value="pe">Median P/E — cheapest first</option>
+            <option value="move">Avg day move</option>
+          </select>
+          <div class="spacer"></div>
+          <div class="rowcount" id="secCount"></div>
+        </div>
         <div class="sec-grid" id="secGrid"></div>
       </div>
     </main>
@@ -1865,10 +1912,15 @@ renderHeatStrip();
 function renderDivbar(){
   const svg = document.getElementById('divbar');
   const containerWidth = Math.round(svg.parentElement.clientWidth) || 380;
-  const isMobile = containerWidth < 480;
+  // terminal density (2026-08-14): tighter rows + thin bars so the card sits
+  // flush with the dense KPI/scatter rhythm around it. Density used to key on
+  // container width <480px, but the redesign's grid-2 column is ~456px on a
+  // 1280 desktop — so desktops were getting the airy touch layout (the "looks
+  // big" complaint). Key on pointer coarseness instead: touch keeps room.
+  const isMobile = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
   const W = Math.max(260, containerWidth);
-  const rowH = isMobile ? 30 : 27, top_pad = 10;
-  const barFont = isMobile ? 12 : 11;
+  const rowH = isMobile ? 28 : 21, top_pad = 8;
+  const barFont = isMobile ? 12 : 10.5;
 
   const sorted = [...DATA].sort((a,b)=>b.valueScore - a.valueScore);
   // sorted is descending (most undervalued first, most overvalued last).
@@ -1897,7 +1949,8 @@ function renderDivbar(){
     const isUp = dev >= 0;
     const x1 = isUp ? mid : mid - barLen;
     const color = isUp ? 'var(--good)' : 'var(--critical)';
-    html += `<rect class="divbar-rect" data-t="${d.ticker}" x="${x1}" y="${y - 7}" width="${barLen}" height="14" rx="4" fill="${color}" fill-opacity="0.85" />`;
+    const barH = isMobile ? 11 : 8;
+    html += `<rect class="divbar-rect" data-t="${d.ticker}" x="${x1}" y="${y - barH / 2}" width="${barLen}" height="${barH}" rx="1" fill="${color}" fill-opacity="0.85" />`;
     // label sits at a fixed offset from the center line, on the same
     // side its own bar starts from — not scaled by barLen, or a long bar
     // (the most extreme rows) drags its own label across to the other side
@@ -3042,6 +3095,7 @@ function renderDetailCard(d){
       </div>
     </div>
     ${scoreNarrative(d)}
+    <div id="dcStakes"></div>
     <div class="breakdown-title">Relative value breakdown (vs sector peers &amp; sector norms — 100 = cheapest)</div>
     ${breakdownRow('Trailing P/E', b.pe)}
     ${breakdownRow('PEG', b.peg)}
@@ -3055,7 +3109,6 @@ function renderDetailCard(d){
     ${renderTechnicalSection(d)}
     ${renderEarningsSection(d)}
     ${peersBlock(d)}
-    <div id="dcStakes"></div>
     <div class="news-wrap" id="newsWrap" data-ticker="${d.ticker}"></div>
   `;
   card.classList.add('open');
@@ -3239,8 +3292,8 @@ function applyHash(){
         '<div class="section-sub">Stake data isn\'t available yet — it appears after the next daily pipeline run.</div>'; return null; });
     return fetching;
   }
-  // small API for the detail card's "Ownership & deals" strip (2026-08-13)
-  window.__stakes = { load, line };
+  // small API for the detail card's "Ownership & deals" panel (2026-08-13; tag added 08-14)
+  window.__stakes = { load, line, tag: e => DEAL_FORMS.has(e.form) ? 'Deal event' : FORM_TAG[e.form] || e.form };
   // click-in filing details: Worker fetches the filing (EDGAR/FCA) and
   // compresses it to key-fact bullets; immutable → cached hard on both ends
   const SK_BULLETS = {};
@@ -3309,20 +3362,24 @@ function applyHash(){
   });
 })();
 
-// detail-card "Ownership & deals" strip (2026-08-13): latest filings for the
-// open stock, from the same stakes-data payload the tab uses
+// detail-card "Ownership & deals" panel (2026-08-13; promoted to a first-class
+// accent-bordered panel above the breakdowns 2026-08-14): latest filings for
+// the open stock, from the same stakes-data payload the tab uses. Renders
+// NOTHING when the stock has no events — no empty shells.
 function renderCardStakes(t){
   const box = document.getElementById('dcStakes');
   if (!box || !window.__stakes) return;
   window.__stakes.load().then(sk => {
     if (!sk) { box.innerHTML = ''; return; }
-    const evs = (sk.events || []).filter(e => e.t === t).slice(0, 3);
+    const evs = (sk.events || []).filter(e => e.t === t).slice(0, 4);
     const off = (sk.offers || {})[t];
     if (!evs.length && !off) { box.innerHTML = ''; return; }
-    box.innerHTML = `<div class="breakdown-title">Ownership &amp; deals</div>`
-      + (off ? `<div class="sk-offer">⚠ In a Takeover Code offer period — ${off.n45} dealing disclosure${off.n45 === 1 ? '' : 's'} in the last 45 days.</div>` : '')
-      + evs.map(e => `<div class="sk-line" style="margin:6px 0">${escHtml(window.__stakes.line(e))} <span style="color:var(--text-muted);font-size:11.5px">(${escHtml(e.d)})</span></div>`).join('')
-      + `<div style="font-size:12.5px;margin-top:6px"><a href="#stakes" id="dcStakesAll" style="color:var(--accent)">All filings for this stock →</a></div>`;
+    box.innerHTML = `<div class="dc-stakes">
+      <div class="dcs-title">Ownership &amp; deals</div>`
+      + (off ? `<div class="sk-offer dcs-offer">⚠ In a Takeover Code offer period — ${off.n45} dealing disclosure${off.n45 === 1 ? '' : 's'} in the last 45 days.</div>` : '')
+      + evs.map(e => `<div class="dcs-line"><span class="dcs-txt">${escHtml(window.__stakes.line(e))}</span><span class="sk-tag dcs-tag">${escHtml(window.__stakes.tag(e))}</span><span class="dcs-date">${escHtml(e.d)}</span></div>`).join('')
+      + `<div class="dcs-all"><a href="#stakes" id="dcStakesAll">All filings for this stock →</a></div>
+    </div>`;
     const a = document.getElementById('dcStakesAll');
     if (a) a.addEventListener('click', () => { window._skPending = t; });
   }).catch(() => { box.innerHTML = ''; });
@@ -3911,16 +3968,45 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
   const grid = document.getElementById('secGrid');
   if (!grid) return;
   const median = a => { const v = a.filter(x => typeof x === 'number' && isFinite(x)).sort((x, y) => x - y); return v.length ? (v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2) : null; };
-  // ~38 true sectors make a long page — show the 12 largest by cap (same cut
-  // as the scatter's color groups) with a show-all expander
+  // ~38 true sectors make a long page — show the first 12 of the current
+  // filter+sort result (default: largest by cap, the scatter's cut) with a
+  // show-all expander.
+  // Filters (2026-08-14): region chips (screener's isEuRow proxy — ARM/SPOT
+  // count as US by design), sector-name search, and a sort select. Region
+  // filtering recomputes every aggregate over the filtered members only.
   let showAllSecs = false;
+  const SECF = { region: 'all', q: '', sort: 'cap' };
   function render(){
     if (grid.closest('.view').offsetParent === null) return;
     const by = {};
-    DATA.forEach(d => { if (d.sector) (by[d.sector] = by[d.sector] || []).push(d); });
-    const secs = Object.entries(by)
-      .map(([name, m]) => ({ name, m, cap: m.reduce((a, d) => a + (d.marketCap || 0), 0) }))
-      .sort((a, b) => b.cap - a.cap);
+    DATA.forEach(d => {
+      if (!d.sector) return;
+      if (SECF.region === 'us' && isEuRow(d)) return;
+      if (SECF.region === 'eu' && !isEuRow(d)) return;
+      (by[d.sector] = by[d.sector] || []).push(d);
+    });
+    let secs = Object.entries(by)
+      .map(([name, m]) => ({ name, m, cap: m.reduce((a, d) => a + (d.marketCap || 0), 0) }));
+    if (SECF.q) secs = secs.filter(s => s.name.toLowerCase().includes(SECF.q));
+    // sort: nulls last within each ordering
+    const med = key => s => median(s.m.map(d => d[key]));
+    const avgMv = s => { const mv = s.m.filter(d => typeof d.dayChange === 'number'); return mv.length ? mv.reduce((a, d) => a + d.dayChange, 0) / mv.length : null; };
+    const orderings = {
+      cap:   [s => s.cap, -1],
+      n:     [s => s.m.length, -1],
+      score: [med('combinedScore'), -1],
+      pe:    [med('pe'), 1],
+      move:  [avgMv, -1],
+    };
+    const [get, dir] = orderings[SECF.sort] || orderings.cap;
+    secs.sort((a, b) => {
+      const av = get(a), bv = get(b);
+      const an = av === null || av === undefined, bn = bv === null || bv === undefined;
+      if (an || bn) return an && bn ? 0 : an ? 1 : -1;
+      return dir * (av - bv);
+    });
+    const count = document.getElementById('secCount');
+    if (count) count.textContent = `${secs.length} sector${secs.length === 1 ? '' : 's'} · ${secs.reduce((a, s) => a + s.m.length, 0)} stocks`;
     grid.innerHTML = '';
     (showAllSecs ? secs : secs.slice(0, 12)).forEach(({ name, m, cap }) => {
       const pe = median(m.map(d => d.pe));
@@ -3953,11 +4039,21 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
     if (!showAllSecs && secs.length > 12){
       const btn = document.createElement('button');
       btn.className = 'sec-more';
-      btn.textContent = `Show all ${secs.length} sectors (${secs.length - 12} smaller ones hidden)`;
+      btn.textContent = `Show all ${secs.length} sectors (${secs.length - 12} more hidden)`;
       btn.addEventListener('click', () => { showAllSecs = true; render(); });
       grid.appendChild(btn);
     }
   }
+  // filter wiring — all three combine; the expander works against the result
+  const secSearch = document.getElementById('secSearch');
+  if (secSearch) secSearch.addEventListener('input', () => { SECF.q = secSearch.value.trim().toLowerCase(); render(); });
+  document.querySelectorAll('#secControls [data-secreg]').forEach(ch => ch.addEventListener('click', () => {
+    SECF.region = ch.getAttribute('data-secreg');
+    document.querySelectorAll('#secControls [data-secreg]').forEach(x => x.classList.toggle('active', x === ch));
+    render();
+  }));
+  const secSort = document.getElementById('secSort');
+  if (secSort) secSort.addEventListener('change', () => { SECF.sort = secSort.value; render(); });
   document.addEventListener('viewchange', e => { if (e.detail === 'sectors') render(); });
   render();
 })();
@@ -4024,6 +4120,16 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
     if (typeof av === 'string') return dir * String(av).localeCompare(String(bv));
     return dir * (av - bv);
   });
+  // TWS-style quote grid (2026-08-14): the 45s live poller mutates DATA and
+  // re-calls renderWatchlistView; WL_LAST holds each ticker's last RENDERED
+  // price so the re-render can flash exactly the cells that ticked. Renders
+  // more than 90s apart (returning to the tab after a while) rebase silently
+  // instead of flashing every row that moved while the view was hidden.
+  const WL_LAST = new Map();
+  let wlRenderedAt = 0;
+  const wlDayAbs = d => (d.price && d.dayChange !== null && d.dayChange !== undefined)
+    ? d.price - d.price / (1 + d.dayChange / 100) : null;
+  const wlSign = v => (v === null || v === undefined) ? '' : v >= 0 ? 'pos' : 'neg';
   window.renderWatchlistView = function(){
     const view = document.getElementById('view-watchlist');
     if (!view || view.offsetParent === null) return;
@@ -4035,35 +4141,45 @@ if ('serviceWorker' in navigator && location.hostname.endsWith('github.io')) {
     document.getElementById('wlSignedOut').style.display = SESSION ? 'none' : '';
     document.getElementById('wlAddWrap').style.display = SESSION ? '' : 'none';
     let rows = SESSION ? DATA.filter(d => STARS.has(d.ticker)) : [];
-    if (WL_SORT.key) rows = nullLast(rows, d => d[WL_SORT.key], WL_SORT.dir);
+    if (WL_SORT.key) rows = nullLast(rows, d => WL_SORT.key === 'dayAbs' ? wlDayAbs(d) : d[WL_SORT.key], WL_SORT.dir);
     document.getElementById('wlEmpty').style.display = (SESSION && !rows.length) ? '' : 'none';
     const table = document.getElementById('wlTable');
     table.style.display = rows.length ? '' : 'none';
     if (!rows.length) table.querySelector('tbody').innerHTML = '';
     if (rows.length){
-      const WL_COLS = [['ticker', 'Ticker', ''], ['name', 'Name', ''], ['price', 'Price', 'num'], ['dayChange', 'Today', 'num'], ['valueScore', 'Value', 'num'], ['combinedScore', 'Combined', 'num'], ['absoluteScore', 'Absolute', '']];
+      const canFlash = Date.now() - wlRenderedAt < 90000;
+      const WL_COLS = [['ticker', 'Ticker', 'al'], ['price', 'Last', ''], ['dayChange', 'Chg%', ''], ['dayAbs', 'Chg', ''], ['weekChange', 'Wk%', ''], ['combinedScore', 'Score', ''], ['quintile', 'Q', '']];
       table.querySelector('thead').innerHTML = '<tr><th></th>' + WL_COLS.map(([k, label, cls]) =>
         `<th class="${cls}" data-k="${k}">${label}${WL_SORT.key === k ? `<span class="arrow">${WL_SORT.dir === 1 ? '▲' : '▼'}</span>` : ''}</th>`).join('') + '</tr>';
       table.querySelectorAll('thead th[data-k]').forEach(th => th.addEventListener('click', () => {
         const k = th.getAttribute('data-k');
         if (WL_SORT.key === k) WL_SORT.dir *= -1;
-        else WL_SORT = { key: k, dir: (k === 'ticker' || k === 'name') ? 1 : -1 };
+        else WL_SORT = { key: k, dir: k === 'ticker' ? 1 : -1 };
         renderWatchlistView();
       }));
-      table.querySelector('tbody').innerHTML = rows.map(d => `
+      table.querySelector('tbody').innerHTML = rows.map(d => {
+        const prev = WL_LAST.get(d.ticker);
+        const fl = canFlash && prev !== undefined && d.price !== prev
+          ? (d.price > prev ? ' wl-up' : ' wl-dn') : '';
+        const da = wlDayAbs(d);
+        return `
         <tr data-goto="${d.ticker}">
-          <td><button class="star-btn on" data-star="${d.ticker}">★</button></td>
-          <td><b>${d.ticker}</b></td><td>${d.name}</td>
-          <td class="num">${fmtMoney(d, d.price)}</td>
-          <td class="num ${d.dayChange >= 0 ? 'pos' : 'neg'}">${d.dayChange !== null && d.dayChange !== undefined ? fmtPct(d.dayChange) : '—'}</td>
-          <td class="num">${d.valueScore !== null && d.valueScore !== undefined ? fmtNum(d.valueScore, 2) : '—'}</td>
-          <td class="num">${d.combinedScore !== null && d.combinedScore !== undefined ? fmtNum(d.combinedScore, 2) : '—'}</td>
-          <td>${d.absLabel || '—'}</td>
-        </tr>`).join('');
+          <td class="wl-starcell"><button class="star-btn on" data-star="${d.ticker}">★</button></td>
+          <td class="al wl-tick"><b>${d.ticker}</b><span class="wl-name">${d.name}</span></td>
+          <td class="wl-last${fl}">${fmtMoney(d, d.price)}</td>
+          <td class="${wlSign(d.dayChange)}${fl}">${d.dayChange !== null && d.dayChange !== undefined ? fmtPct(d.dayChange) : '—'}</td>
+          <td class="${wlSign(da)}">${da !== null ? (da >= 0 ? '+' : '') + fmtNum(da, 2) : '—'}</td>
+          <td class="${wlSign(d.weekChange)}">${d.weekChange !== null && d.weekChange !== undefined ? fmtPct(d.weekChange) : '—'}</td>
+          <td>${d.combinedScore !== null && d.combinedScore !== undefined ? fmtNum(d.combinedScore, 1) : '—'}</td>
+          <td class="wl-q">${d.quintile ? 'Q' + d.quintile : '—'}</td>
+        </tr>`;
+      }).join('');
       table.querySelectorAll('[data-goto]').forEach(tr => tr.addEventListener('click', e => {
         if (e.target.closest('[data-star]')) return;   // star clicks unstar, they don't navigate
         location.hash = tr.getAttribute('data-goto');
       }));
+      rows.forEach(d => WL_LAST.set(d.ticker, d.price));
+      wlRenderedAt = Date.now();
     }
     const sys = document.getElementById('wlSystem');
     const ranked = DATA.filter(d => d.combinedScore !== null && d.combinedScore !== undefined)
