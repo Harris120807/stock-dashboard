@@ -2942,7 +2942,7 @@ function scoreNarrative(d){
 let _detailFetch = null;
 function fetchDetail(){
   if (!_detailFetch){
-    _detailFetch = fetch('detail-data.json')
+    _detailFetch = fetch('/detail-data.json')
       .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(j => {
         const by = j.byTicker || {};
@@ -3286,7 +3286,7 @@ function applyHash(){
   }
   function load(){
     if (SK) return Promise.resolve(SK);
-    if (!fetching) fetching = fetch('stakes-data.json').then(r => { if (!r.ok) throw 0; return r.json(); })
+    if (!fetching) fetching = fetch('/stakes-data.json').then(r => { if (!r.ok) throw 0; return r.json(); })
       .then(j => { SK = j; render(); return j; })
       .catch(() => { document.getElementById('skTop').innerHTML =
         '<div class="section-sub">Stake data isn\'t available yet — it appears after the next daily pipeline run.</div>'; return null; });

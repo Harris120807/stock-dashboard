@@ -1120,3 +1120,55 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   /out-before coexist) — injects a fake `vt-session` + route-fulfills
   `/me` & `/me/rules` to exercise the signed-in grid, and simulates a live
   tick by mutating DATA + calling renderWatchlistView in page context.
+
+## Multi-product split (2026-08-14, owner-approved)
+
+- **URL map**: valuetally.com/ = NEW landing page (`home.html` on claude/state,
+  a COMPLETE standalone document — full doctype/head/body, NOT processed by
+  refresh.py) · `/app/` = the retail dashboard (template.html, unchanged
+  pipeline) · `/command/` `/wall/` `/ledger/` = the three pro layouts
+  (`pro/command.html`, `pro/wall.html`, `pro/ledger.html` on claude/state —
+  standalone documents like home, productionized from the owner-approved
+  concept mockups; wall = the "macrowall" concept). Publish wiring (workflows
+  lane) copies each to `<dir>/index.html` on claude/pages.
+- **Absolute data-path rule**: every published data file lives at the SITE
+  ROOT and is fetched with a leading slash — `/data.json` (slim array, written
+  by refresh.py beside index.html), `/detail-data.json`, `/stakes-data.json`,
+  `/price-history.json` (this one is pipeline STATE, not an OUT file — the
+  publish step must copy it to the root). template.html's detail/stakes
+  fetches were switched to absolute 2026-08-14 so the retail app works from
+  `/app/`; PH_URL/PHL_BASE/NEWS_URL/REQLOG_URL stay raw.githubusercontent and
+  are unaffected. Any NEW fetch of a published file must be root-absolute.
+- **Shared gate key**: all four products enforce the first-visit disclaimer
+  via the SAME localStorage key `sd-agreed-v1` — the pro pages show a compact
+  per-concept styled blocking overlay (`#gate`, essential content only:
+  mechanical screen / not advice / Finnhub & Yahoo may be delayed or wrong /
+  information only); agreeing anywhere passes everywhere. Don't fork the key.
+- **Pro-page furniture** (all three): product switcher in each page's chrome
+  (wordmark → `/`, links Retail `/app/` · Command · Wall · Ledger, current
+  marked `.cur`); `#dataErr` full-screen "data unavailable" state on any
+  failed data fetch (never a blank page); `#mobNote` dismissible
+  built-for-desktop bar under 700px (sessionStorage `vt-pro-mob`) — the pages
+  are deliberately desktop-first, no responsive rebuild; favicon
+  `/icon-192.png`, per-concept theme-color (#080806/#07090d/#121419). The
+  Ledger top bar sheds #count/<1500px, shrinks search/<1340px, drops Q-chips
+  /<1180px so the switcher never clips.
+- **home.html hash-redirect contract**: the FIRST script in home's head is
+  `if (location.hash) location.replace('/app/' + location.hash);` — every
+  legacy deep-link (`#watchlist`, `#stakes`, `#TICKER`…) from emails/API
+  docs/bookmarks lands in the retail app unchanged. Must stay first, before
+  any paint. Landing is ice-terminal family (dark #0a0e14 ground, cyan
+  #3fb6dd, brand arrow mark), dark-first with a prefers-color-scheme light
+  palette, responsive to 360px, previews are its only external requests.
+- **Previews path contract**: `pro/previews/{retail,command,wall,ledger}.jpg`
+  on claude/state (800px wide JPEG q75, <120KB) are published to
+  `/previews/…` — home.html references them absolutely. Retail preview is a
+  dark-scheme 1280×900 shot of the live #overview; the other three are
+  downscaled concept screenshots — re-shoot when a product's look changes
+  materially.
+- **Test harness**: `staging/e2e-ship.mjs` in the session scratchpad builds
+  the production layout (home at root, app/command/wall/ledger subdirs, data
+  at root) and asserts cards+previews, hash redirects (fresh document load —
+  same-document hash changes don't re-run head scripts), per-page gate
+  show/dismiss/persist, switcher link resolution, data render, 404 → dataErr,
+  and the retail stock card merging /detail-data.json from under /app/.
