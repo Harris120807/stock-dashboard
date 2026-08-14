@@ -35,6 +35,8 @@ jobs:
           STATE_DIR=state OUT_DIR=out python3 state/scripts/daily_analyst.py
 
       - name: Fetch stake/deal disclosures (EDGAR + FCA NSM)
+        env:
+          DOC_CAP: "150"   # headroom for enrichment + the daily repair pass (default 60 starved filer/pct parsing)
         run: |
           STATE_DIR=state python3 state/scripts/daily_stakes.py || echo "stakes fetch failed - non-fatal, prior state carries forward"
 
