@@ -67,8 +67,19 @@ jobs:
         id: pages
         if: steps.dedup.outputs.skip != 'true'
         run: |
-          mkdir pub && cp out/index.html out/detail-data.json pub/ && cp -r state/pwa/. pub/
-          [ -f out/stakes-data.json ] && cp out/stakes-data.json pub/   # stake/deal disclosures for the #stakes tab
+          # Multi-product layout (2026-08-15): / = landing page, /app/ = retail
+          # dashboard, /command|/wall|/ledger = pro layouts; shared data files
+          # at the root. Guards keep publishes working before state files land.
+          mkdir -p pub/app && cp out/index.html pub/app/index.html && cp -r state/pwa/. pub/
+          cp out/detail-data.json pub/
+          if [ -f out/stakes-data.json ]; then cp out/stakes-data.json pub/; fi        # stake/deal disclosures
+          if [ -f out/data.json ]; then cp out/data.json pub/; fi                      # slim records for pro layouts
+          if [ -f state/price-history.json ]; then cp state/price-history.json pub/; fi  # 30d closes for pro sparklines
+          if [ -f state/home.html ]; then cp state/home.html pub/index.html; else cp out/index.html pub/index.html; fi
+          for p in command wall ledger; do
+            if [ -f "state/pro/$p.html" ]; then mkdir -p "pub/$p"; cp "state/pro/$p.html" "pub/$p/index.html"; fi
+          done
+          if [ -d state/pro/previews ]; then mkdir -p pub/previews; cp state/pro/previews/*.jpg pub/previews/; fi
           mkdir -p pub/admin && cp state/admin.html pub/admin/index.html   # owner console (key-gated via the Worker)
           echo "valuetally.com" > pub/CNAME   # custom domain — GitHub Pages reads this from the branch root
           cd pub
