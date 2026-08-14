@@ -74,6 +74,7 @@ jobs:
           cp out/detail-data.json pub/
           if [ -f out/stakes-data.json ]; then cp out/stakes-data.json pub/; fi        # stake/deal disclosures
           if [ -f out/data.json ]; then cp out/data.json pub/; fi                      # slim records for pro layouts
+          if [ -f out/trades-data.json ]; then cp out/trades-data.json pub/; fi         # insider transactions (Form 4)
           if [ -f state/price-history.json ]; then cp state/price-history.json pub/; fi  # 30d closes for pro sparklines
           if [ -f state/home.html ]; then cp state/home.html pub/index.html; else cp out/index.html pub/index.html; fi
           for p in command wall ledger; do
