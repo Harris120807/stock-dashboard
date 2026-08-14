@@ -1151,7 +1151,7 @@ async function handleAuth(route, req, env, ctx) {
 const SK_MAIL_LABEL = {
   'TENDER': 'tender offer for the company', '14D9': 'board response to a tender offer',
   'GOING-PRIVATE': 'going-private filing', 'MERGER-PROXY': 'merger proxy filed',
-  'MERGER-REG': 'merger registration (S-4)', 'MERGER-COMM': 'deal communication (Rule 425)',
+  'MERGER-REG': 'merger registration (S-4)', 'MERGER-AGREEMENT': 'merger agreement announced (8-K)', 'MERGER-COMM': 'deal communication (Rule 425)',
   'BANKRUPTCY': 'bankruptcy/receivership 8-K', 'COMPLETED-ACQ': 'acquisition or disposal completed',
   'CAPITAL-REORG': 'capital reorganisation', 'ACQUISITION': 'acquisition announced',
   'DISPOSAL': 'disposal announced', 'OFFER-BY': 'offer announced', 'OFFER-FOR': 'takeover offer for the company',

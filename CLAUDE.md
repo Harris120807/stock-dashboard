@@ -943,6 +943,34 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   stakes-data events; needs ≥2 points, same-filer case-insensitive,
   inward events only). moreBtn buttons carry data-skt/data-skfiler.
 
+## Filings engine repair (2026-08-15, owner-flagged)
+
+- **Churn loop (root cause of "engine isn't pulling the data")**: dedupe
+  membership used to be only the STORED events, so anything pruned by the
+  60-per-ticker cap was re-ingested as "new" next day (~731 events/run),
+  exhausting DOC_CAP=60 before enrichment → a week of events with 5 filer
+  names. Fix: `ent["seen"]` — durable per-ticker accession memory (bounded
+  800), membership = seen ∪ stored; squelched + non-merger 1.01 filings are
+  marked seen too. NEVER regress dedupe to stored-events-only.
+- **Enrichment repair pass**: after the main loops, leftover doc budget is
+  spent re-reading structured XML for stored 13D/G events missing `filer`
+  (newest first; handles outward reclassification + fin-churn drops). Ran
+  once locally with DOC_CAP=1500: 437 repaired, missing-filer 459→22,
+  content-dupes 277→11. Daily DOC_CAP now 150 (workflow env, PR #29).
+- **8-K item 1.01 → MERGER-AGREEMENT (sig 95)**: material-agreement 8-Ks are
+  fetched and pattern-checked ("agreement and plan of merger" family); credit
+  agreements are discarded and marked seen. Day-one deal announcements now
+  land weeks before the S-4/proxy did (first catches: VRTX Jul 6, ICE Jul 29).
+  Labels added in template DEAL_LABEL/DEAL_FORMS + worker SK_MAIL_LABEL.
+- **Payload**: events now ship `id` (accession) + `ts` (EDGAR acceptance
+  time, new events onward); refresh.py collapses exact content twins
+  (t/form/d/filer/pct/subject) at publish — same-day per-class amendments
+  stay stored but render once.
+- **Worker deploy pending owner token**: the SK_MAIL_LABEL addition is in
+  worker/worker.js source but NOT deployed (Cloudflare deploy token lives
+  only in-session and was lost to a container restart — owner must re-paste;
+  until then digest emails print the raw form name, harmless).
+
 ## Multi-agent coordination
 
 - **Lanes**: (1) UI/template → `template.html` on `claude/state`; (2) scoring/pipeline →

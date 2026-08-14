@@ -843,10 +843,21 @@ for _t, _ent in (_sk.get("byTicker") or {}).items():
         _passive = _e["form"] in ("13G", "13G/A", "TR-1") and not _e.get("subject")
         if _age > (180 if _passive else 550):
             continue
-        _ev = {k: _e[k] for k in ("d", "form", "filer", "subject", "pct", "prevPct", "rule", "url", "hl", "note", "shares", "terms", "sig", "src") if _e.get(k) is not None}
+        _ev = {k: _e[k] for k in ("id", "d", "ts", "form", "filer", "subject", "pct", "prevPct", "rule", "url", "hl", "note", "shares", "terms", "sig", "src") if _e.get(k) is not None}
         _ev["t"] = _t
         _ev["rank"] = round(_e.get("sig", 30) * math.exp(-_age / 60), 1)
         _sk_events.append(_ev)
+# display dedupe (2026-08-15): institutions often file several same-day
+# amendments (per share class); once enriched they're distinguishable, but
+# identical-looking rows are noise — collapse exact content twins
+_sk_seen, _sk_dedup = set(), []
+for _ev in _sk_events:
+    _k = (_ev["t"], _ev["form"], _ev["d"], _ev.get("filer"), _ev.get("pct"), _ev.get("subject"))
+    if _k in _sk_seen:
+        continue
+    _sk_seen.add(_k)
+    _sk_dedup.append(_ev)
+_sk_events = _sk_dedup
 _sk_events.sort(key=lambda x: -x["rank"])
 json.dump({"updatedAt": _sk.get("updatedAt"), "events": _sk_events, "offers": _sk_offers},
           open(f"{OUT}/stakes-data.json", "w"), separators=(",", ":"), ensure_ascii=False)

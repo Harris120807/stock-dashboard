@@ -219,7 +219,7 @@ def extract_terms(text):
 def sig_for(form, pct, delta, was_13g):
     """Significance 0-100. Deal events top, activist stakes next, passive churn bottom."""
     if form in ("TENDER", "TENDER-SELF", "14D9", "GOING-PRIVATE", "OFFER-BY", "OFFER-FOR",
-                "COMPULSORY-ACQ", "BANKRUPTCY", "TENDER-RESULT"):
+                "COMPULSORY-ACQ", "BANKRUPTCY", "TENDER-RESULT", "MERGER-AGREEMENT"):
         return 95
     if form in ("POSSIBLE-OFFER", "OFFER-REJECTED", "OFFER-UPDATE", "PANEL-STATEMENT"):
         return 85
@@ -376,7 +376,13 @@ def main():
         ent["cik"] = cik
         if not cik:
             continue
-        known = {e["id"] for e in ent["events"]}
+        # "seen" is the durable dedupe set (2026-08-15): membership used to be
+        # only the STORED events, so anything pruned by the per-ticker cap was
+        # re-ingested as "new" the next day — a churn loop that re-added ~700
+        # events/run and burned the whole doc budget before enrichment could
+        # touch anything. seen remembers every accession ever processed.
+        seen = set(ent.get("seen") or []) | {e["id"] for e in ent["events"]}
+        known = seen
         seeded = bool(ent.get("lastFetch"))
         time.sleep(0.13)
         sub = jget(f"https://data.sec.gov/submissions/CIK{cik:010d}.json")
@@ -385,6 +391,7 @@ def main():
         r = sub.get("filings", {}).get("recent", {})
         forms, dates, accs, docs = r.get("form", []), r.get("filingDate", []), r.get("accessionNumber", []), r.get("primaryDocument", [])
         items = r.get("items", [""] * len(forms))
+        accepts = r.get("acceptanceDateTime", [""] * len(forms))
         for i in range(len(forms)):
             f, d = forms[i], dates[i]
             form = STAKE_FORMS.get(f) or DEAL_FORMS.get(f)
@@ -394,6 +401,11 @@ def main():
                     form = "BANKRUPTCY"
                 elif "2.01" in it:
                     form = "COMPLETED-ACQ"
+                elif "1.01" in it:
+                    # material agreements: mostly credit facilities, but this is
+                    # where MERGER AGREEMENTS are first announced — weeks before
+                    # the S-4/proxy. Candidate until the document confirms it.
+                    form = "AGREEMENT-CANDIDATE"
             if not form:
                 continue
             window = PASSIVE_WINDOW_D if form == "13G/A" else FULL_WINDOW_D
@@ -407,6 +419,7 @@ def main():
             if form in SQUELCH_FORMS and any(
                     e["form"] == form and abs((datetime.date.fromisoformat(e["d"]) - datetime.date.fromisoformat(d)).days) <= SQUELCH_D
                     for e in ent["events"]):
+                seen.add(acc)
                 continue
             nodash = acc.replace("-", "")
             url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{nodash}/{docs[i]}" if docs[i] else \
@@ -435,10 +448,18 @@ def main():
                     _txt = flatten_html(raw.decode("utf-8", "replace"))
                     note = snippet(_txt)
                     terms = extract_terms(_txt)
+                    if form == "AGREEMENT-CANDIDATE":
+                        if re.search(r"agreement and plan of merger|definitive (?:merger|acquisition) agreement|agreement to acquire|to be acquired by|business combination agreement", _txt, re.I):
+                            form = "MERGER-AGREEMENT"
+                        else:
+                            seen.add(acc)  # ordinary credit/commercial agreement — never an event
+                            continue
                 # S-4s also register routine debt exchange offers — don't let
                 # refinancing masquerade as M&A in the feed
                 if form == "MERGER-REG" and note and re.search(r"notes due|aggregate principal amount|exchange.{0,40}notes", note, re.I):
                     form = "DEBT-EXCHANGE"
+            if form == "AGREEMENT-CANDIDATE":
+                continue  # doc budget exhausted or fetch failed — retry while in scan window
             prev = next((e.get("pct") for e in ent["events"]
                          if e.get("filer") and filer and e["filer"].lower() == filer.lower()
                          and e.get("pct") is not None
@@ -451,6 +472,7 @@ def main():
                 for e in ent["events"])
             ev = {
                 "id": acc, "d": d, "src": "edgar", "form": form, "filer": filer,
+                "ts": (accepts[i] or "")[:16] or None,
                 "pct": pct, "prevPct": prev, "rule": rule, "note": note,
                 "shares": shares, "terms": terms,
                 "sig": sig_for(form, pct, delta, was_13g), "url": url,
@@ -460,7 +482,9 @@ def main():
                 # corporate stake in another firm — strategic, often an M&A precursor
                 ev["sig"] = {"13D": 80, "13D/A": 60, "13G": 55, "13G/A": 35}.get(form, 50)
             ent["events"].append(ev)
+            seen.add(acc)
             ev_new += 1
+        ent["seen"] = sorted(seen)[-800:]  # durable dedupe memory, bounded
         ent["lastFetch"] = now.isoformat()
 
     # ---- FCA NSM (London rows) ----
@@ -540,6 +564,42 @@ def main():
             ev_new += 1
         ent["offer"] = {"last": offer_last, "n45": offer_n} if offer_n else None
 
+    # ---- enrichment repair (2026-08-15) ----
+    # Spend any leftover doc budget on stored stake events that never got
+    # their structured XML read (doc-cap exhaustion during the churn-loop era,
+    # or transient SEC throttling). Newest first — those are what users see.
+    _repair = [(t, e) for t, ent2 in by.items() for e in ent2["events"]
+               if e.get("src") == "edgar" and e["form"] in ("13D", "13D/A", "13G", "13G/A")
+               and e.get("filer") is None and "primary_doc.xml" in (e.get("url") or "")]
+    _repair.sort(key=lambda x: x[1]["d"], reverse=True)
+    rep_ok = 0
+    for t, e in _repair:
+        if docs_left <= 0:
+            break
+        docs_left -= 1
+        time.sleep(0.13)
+        raw = http(re.sub(r"xsl[^/]+/", "", e["url"]))
+        if not raw:
+            continue
+        filer, pct, rule, icik, inm, note, shares = parse_13dg_xml(raw)
+        if filer is None and pct is None:
+            continue
+        e["filer"], e["pct"], e["rule"], e["shares"] = filer, pct, rule, shares
+        if note and not e.get("note"):
+            e["note"] = note
+        cik2 = by[t].get("cik")
+        if icik and cik2 and icik != cik2:  # outward: company's own stake elsewhere
+            e["subject"] = inm
+            if e["form"] in ("13G", "13G/A") and t in fin_rows:
+                e["_drop"] = True  # financial-sector portfolio churn
+            else:
+                e["sig"] = {"13D": 80, "13D/A": 60, "13G": 55, "13G/A": 35}.get(e["form"], 50)
+        else:
+            e["sig"] = sig_for(e["form"], pct, None, False)
+        rep_ok += 1
+    for ent2 in by.values():
+        ent2["events"] = [e for e in ent2["events"] if not e.get("_drop")]
+
     # prune + cap
     for t, ent in by.items():
         evs = [e for e in ent["events"]
@@ -556,7 +616,7 @@ def main():
     with open(state_path, "w") as f:
         json.dump(state, f, separators=(",", ":"))
     total = sum(len(e["events"]) for e in by.values())
-    print(f"stakes: {ev_new} new events this run, {total} stored across "
+    print(f"stakes: {ev_new} new events this run ({rep_ok} repaired), {total} stored across "
           f"{sum(1 for e in by.values() if e['events'])} tickers; "
           f"{xml_ok} structured 13D/G parsed, {DOC_CAP - docs_left} docs fetched, "
           f"{len(leis)} LEIs cached")

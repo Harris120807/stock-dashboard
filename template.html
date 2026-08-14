@@ -3192,7 +3192,7 @@ function applyHash(){
   const DEAL_FORMS = new Set(['TENDER','TENDER/A','TENDER-SELF','TENDER-SELF/A','14D9','14D9/A',
     'GOING-PRIVATE','GOING-PRIVATE/A','OFFER-BY','OFFER-FOR','POSSIBLE-OFFER','OFFER-REJECTED',
     'OFFER-UPDATE','PANEL-STATEMENT','COMPULSORY-ACQ','TENDER-RESULT','MERGER-PROXY','MERGER-REG',
-    'MERGER-COMM','BANKRUPTCY','COMPLETED-ACQ','CAPITAL-REORG','ACQUISITION','DISPOSAL','DEBT-EXCHANGE']);
+    'MERGER-COMM','MERGER-AGREEMENT','BANKRUPTCY','COMPLETED-ACQ','CAPITAL-REORG','ACQUISITION','DISPOSAL','DEBT-EXCHANGE']);
   const DEAL_LABEL = {
     'TENDER':'Tender offer launched for the company (SC TO-T)',
     'TENDER/A':'Tender offer document amended',
@@ -3202,6 +3202,7 @@ function applyHash(){
     '14D9/A':'Tender-response document amended',
     'GOING-PRIVATE':'Going-private transaction filed (13E-3)',
     'GOING-PRIVATE/A':'Going-private document amended',
+    'MERGER-AGREEMENT':'Merger agreement announced (8-K item 1.01) — a deal is signed',
     'MERGER-PROXY':'Merger proxy filed — shareholders to vote on a deal',
     'MERGER-REG':'Merger / share-exchange registration filed (S-4)',
     'MERGER-COMM':'Deal communication filed (Rule 425)',
