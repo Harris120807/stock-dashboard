@@ -37,6 +37,8 @@ jobs:
       - name: Fetch stake/deal disclosures (EDGAR + FCA NSM)
         env:
           DOC_CAP: "150"   # headroom for enrichment + the daily repair pass (default 60 starved filer/pct parsing)
+          TRADE_CAP: "400" # Form 4 insider-transaction XML reads per run
+          EFTS_CAP: "100"  # deal-counterparty lookups per run
         run: |
           STATE_DIR=state python3 state/scripts/daily_stakes.py || echo "stakes fetch failed - non-fatal, prior state carries forward"
 
