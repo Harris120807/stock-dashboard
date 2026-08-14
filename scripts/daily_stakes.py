@@ -40,9 +40,14 @@ STATE_DIR = os.environ.get("STATE_DIR", "state")
 DOC_CAP = int(os.environ.get("DOC_CAP", "60"))
 UA = "ValueTally stake-monitor (contact@valuetally.com)"
 
+TRADE_CAP = int(os.environ.get("TRADE_CAP", "300"))  # Form 4 XML reads per run
+EFTS_CAP = int(os.environ.get("EFTS_CAP", "80"))      # counterparty lookups per run
+
 FULL_WINDOW_D = 550     # deal forms + 13D
 PASSIVE_WINDOW_D = 180  # 13G/A institutional churn
 EVENT_CAP = 60          # per ticker
+TRADE_WINDOW_D = 120    # insider (Form 4) transactions
+TRADE_STORE_CAP = 40    # per ticker
 SQUELCH_D = 21          # collapse repeat deal-doc amendments (425, /A) within this window
 
 STAKE_FORMS = {
@@ -280,7 +285,72 @@ def parse_13dg_xml(raw):
             (int(icik.group(1)) if icik else None), unesc(inm.group(1) if inm else None), note, best[2])
 
 
+def parse_form4(raw):
+    """Structured Form 4 (ownershipDocument XML) -> one summarized trade:
+    who, role, dominant transaction code, direction, total shares, weighted
+    average price, shares owned after. Non-derivative table only (the
+    derivative table is options plumbing; its presence is flagged)."""
+    txt = raw.decode("utf-8", "replace")
+    name = re.search(r"<rptOwnerName>(.*?)</rptOwnerName>", txt)
+    owners = re.findall(r"<rptOwnerName>(.*?)</rptOwnerName>", txt)
+    title = re.search(r"<officerTitle>(.*?)</officerTitle>", txt)
+    role = []
+    if re.search(r"<isDirector>(1|true)</isDirector>", txt): role.append("Director")
+    if re.search(r"<isOfficer>(1|true)</isOfficer>", txt):
+        role.append(htmllib.unescape(title.group(1).strip()) if title else "Officer")
+    if re.search(r"<isTenPercentOwner>(1|true)</isTenPercentOwner>", txt): role.append("10% owner")
+    by_code = {}
+    after = None
+    for m in re.finditer(r"<nonDerivativeTransaction>(.*?)</nonDerivativeTransaction>", txt, re.S):
+        b = m.group(1)
+        g = lambda t: (re.search(rf"<{t}>\s*<value>\s*([^<]*?)\s*</value>", b, re.S)
+                       or re.search(rf"<{t}>\s*([^<]*?)\s*</{t}>", b, re.S))
+        code = g("transactionCode"); ad = g("transactionAcquiredDisposedCode")
+        sh = g("transactionShares"); px = g("transactionPricePerShare")
+        aft = g("sharesOwnedFollowingTransaction")
+        if not code: continue
+        try: shv = float(sh.group(1)) if sh else 0.0
+        except ValueError: shv = 0.0
+        try: pxv = float(px.group(1)) if px and px.group(1) else None
+        except ValueError: pxv = None
+        k = (code.group(1).strip(), (ad.group(1).strip() if ad else ""))
+        e = by_code.setdefault(k, {"sh": 0.0, "val": 0.0, "pxsh": 0.0})
+        e["sh"] += shv
+        if pxv is not None:
+            e["val"] += shv * pxv; e["pxsh"] += shv
+        if aft:
+            try: after = int(float(aft.group(1)))
+            except ValueError: pass
+    if not by_code:
+        return None
+    (code, ad), agg = max(by_code.items(), key=lambda kv: kv[1]["val"] or kv[1]["sh"])
+    px = round(agg["val"] / agg["pxsh"], 2) if agg["pxsh"] else None
+    dirn = "buy" if (code == "P" or (ad == "A" and code not in ("M", "A", "G"))) else \
+           "sell" if (code == "S" or (ad == "D" and code == "F")) else "other"
+    who = htmllib.unescape(owners[0].strip()) if owners else None
+    if who and len(owners) > 1:
+        who += f" +{len(owners)-1}"
+    return {"name": who, "role": ", ".join(role) or None, "code": code, "dir": dirn,
+            "sh": int(agg["sh"]), "px": px, "after": after,
+            "deriv": "<derivativeTransaction>" in txt}
+
+
+def efts_parties(acc):
+    """All filing parties for an accession via EDGAR full-text search —
+    display_names carries filer AND subject entities."""
+    j = jget('https://efts.sec.gov/LATEST/search-index?q=%22' + acc + '%22')
+    names = []
+    for h in (j or {}).get("hits", {}).get("hits", []):
+        for dn in h.get("_source", {}).get("display_names", []) or []:
+            n = re.sub(r"\s*\(CIK[^)]*\)", "", re.sub(r"\s*\(([A-Z0-9.,\- ]{1,25})\)\s*(?=\()", " ", dn)).strip()
+            if n and n not in names:
+                names.append(n)
+    return names[:4] or None
+
+
 def parse_tr1(raw):
+
+
     """TR-1 Holding(s) in Company HTML → (holder, resulting_pct, prev_pct). Best effort."""
     t = flatten_html(raw.decode("utf-8", "replace"))
     holder = None
@@ -359,7 +429,11 @@ def main():
         rows.append((nat, adr, names.get(nat) if nat.endswith(".L") else None))
 
     docs_left = DOC_CAP
-    ev_new = xml_ok = 0
+    trades_left = TRADE_CAP
+    efts_left = EFTS_CAP
+    ev_new = xml_ok = tr_new = 0
+    PARTY_FORMS = {"MERGER-AGREEMENT", "TENDER", "TENDER-SELF", "14D9", "MERGER-REG",
+                   "MERGER-COMM", "MERGER-PROXY", "GOING-PRIVATE", "COMPLETED-ACQ"}
 
     # ---- EDGAR ----
     cikmap = {}
@@ -392,8 +466,31 @@ def main():
         forms, dates, accs, docs = r.get("form", []), r.get("filingDate", []), r.get("accessionNumber", []), r.get("primaryDocument", [])
         items = r.get("items", [""] * len(forms))
         accepts = r.get("acceptanceDateTime", [""] * len(forms))
+        seenT = set(ent.get("seenT") or [])
+        trades = ent.setdefault("trades", [])
         for i in range(len(forms)):
             f, d = forms[i], dates[i]
+            if f == "4":
+                # insider transactions (2026-08-15): structured ownershipDocument
+                # XML — who, role, code, direction, shares, price, held-after
+                if (today - datetime.date.fromisoformat(d)).days > TRADE_WINDOW_D:
+                    continue
+                acc4 = accs[i]
+                if acc4 in seenT or trades_left <= 0 or not docs[i]:
+                    continue
+                trades_left -= 1
+                time.sleep(0.11)
+                nod4 = acc4.replace("-", "")
+                raw4 = http(f"https://www.sec.gov/Archives/edgar/data/{cik}/{nod4}/{docs[i].split('/')[-1]}")
+                seenT.add(acc4)
+                if raw4:
+                    t4 = parse_form4(raw4)
+                    if t4 and t4["sh"] > 0:
+                        t4.update({"id": acc4, "d": d, "ts": (accepts[i] or "")[:16] or None,
+                                   "url": f"https://www.sec.gov/Archives/edgar/data/{cik}/{nod4}/{docs[i]}"})
+                        trades.append(t4)
+                        tr_new += 1
+                continue
             form = STAKE_FORMS.get(f) or DEAL_FORMS.get(f)
             if f == "8-K":
                 it = items[i] or ""
@@ -481,10 +578,15 @@ def main():
                 ev["subject"] = subject
                 # corporate stake in another firm — strategic, often an M&A precursor
                 ev["sig"] = {"13D": 80, "13D/A": 60, "13G": 55, "13G/A": 35}.get(form, 50)
+            if form in PARTY_FORMS and efts_left > 0:
+                efts_left -= 1
+                time.sleep(0.25)
+                ev["parties"] = efts_parties(acc)
             ent["events"].append(ev)
             seen.add(acc)
             ev_new += 1
         ent["seen"] = sorted(seen)[-800:]  # durable dedupe memory, bounded
+        ent["seenT"] = sorted(seenT)[-1500:]
         ent["lastFetch"] = now.isoformat()
 
     # ---- FCA NSM (London rows) ----
@@ -599,6 +701,19 @@ def main():
         rep_ok += 1
     for ent2 in by.values():
         ent2["events"] = [e for e in ent2["events"] if not e.get("_drop")]
+    # counterparty repair: EFTS indexing lags fresh filings a little, and
+    # events created before 2026-08-15 never had a lookup — newest first
+    _prep = [e for ent2 in by.values() for e in ent2["events"]
+             if e.get("src") == "edgar" and e["form"] in PARTY_FORMS and "parties" not in e]
+    _prep.sort(key=lambda e: e["d"], reverse=True)
+    for e in _prep:
+        if efts_left <= 0:
+            break
+        efts_left -= 1
+        time.sleep(0.25)
+        p = efts_parties(e["id"])
+        if p:
+            e["parties"] = p
 
     # prune + cap
     for t, ent in by.items():
@@ -607,6 +722,11 @@ def main():
                (PASSIVE_WINDOW_D if e["form"] == "13G/A" else FULL_WINDOW_D)]
         evs.sort(key=lambda e: (e["d"], e.get("sig", 0)), reverse=True)
         ent["events"] = evs[:EVENT_CAP]
+    for t, ent in by.items():
+        trs = [x for x in ent.get("trades") or []
+               if (today - datetime.date.fromisoformat(x["d"])).days <= TRADE_WINDOW_D]
+        trs.sort(key=lambda x: x["d"], reverse=True)
+        ent["trades"] = trs[:TRADE_STORE_CAP]
     live = {r[0] for r in rows}
     for t in list(by):
         if t not in live:
@@ -616,7 +736,8 @@ def main():
     with open(state_path, "w") as f:
         json.dump(state, f, separators=(",", ":"))
     total = sum(len(e["events"]) for e in by.values())
-    print(f"stakes: {ev_new} new events this run ({rep_ok} repaired), {total} stored across "
+    total_tr = sum(len(e.get("trades") or []) for e in by.values())
+    print(f"stakes: {ev_new} new events this run ({rep_ok} repaired), {tr_new} new insider trades ({total_tr} stored), {total} stored across "
           f"{sum(1 for e in by.values() if e['events'])} tickers; "
           f"{xml_ok} structured 13D/G parsed, {DOC_CAP - docs_left} docs fetched, "
           f"{len(leis)} LEIs cached")

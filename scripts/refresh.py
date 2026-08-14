@@ -843,9 +843,15 @@ for _t, _ent in (_sk.get("byTicker") or {}).items():
         _passive = _e["form"] in ("13G", "13G/A", "TR-1") and not _e.get("subject")
         if _age > (180 if _passive else 550):
             continue
-        _ev = {k: _e[k] for k in ("id", "d", "ts", "form", "filer", "subject", "pct", "prevPct", "rule", "url", "hl", "note", "shares", "terms", "sig", "src") if _e.get(k) is not None}
+        _ev = {k: _e[k] for k in ("id", "d", "ts", "form", "filer", "subject", "pct", "prevPct", "rule", "url", "hl", "note", "shares", "terms", "parties", "sig", "src") if _e.get(k) is not None}
         _ev["t"] = _t
         _ev["rank"] = round(_e.get("sig", 30) * math.exp(-_age / 60), 1)
+        # stake direction (2026-08-15): derived from percent vs the filer's
+        # previous notification — new / increased / decreased / exited
+        if _e["form"] in ("13D", "13D/A", "13G", "13G/A", "TR-1") and _e.get("pct") is not None:
+            _pp = _e.get("prevPct")
+            _ev["dir"] = ("exit" if _e["pct"] == 0 else "new" if _pp is None
+                          else "inc" if _e["pct"] > _pp else "dec" if _e["pct"] < _pp else "flat")
         _sk_events.append(_ev)
 # display dedupe (2026-08-15): institutions often file several same-day
 # amendments (per share class); once enriched they're distinguishable, but
@@ -861,6 +867,18 @@ _sk_events = _sk_dedup
 _sk_events.sort(key=lambda x: -x["rank"])
 json.dump({"updatedAt": _sk.get("updatedAt"), "events": _sk_events, "offers": _sk_offers},
           open(f"{OUT}/stakes-data.json", "w"), separators=(",", ":"), ensure_ascii=False)
+# insider transactions payload (2026-08-15): Form 4 trades per ticker —
+# who / role / code / direction / shares / price / held-after, 120d window
+_tr_by = {}
+for _t, _ent in (_sk.get("byTicker") or {}).items():
+    if _t not in _live_t:
+        continue
+    _trs = [{k: x[k] for k in ("id", "d", "ts", "name", "role", "code", "dir", "sh", "px", "after", "url") if x.get(k) is not None}
+            for x in (_ent.get("trades") or [])[:25]]
+    if _trs:
+        _tr_by[_t] = _trs
+json.dump({"updatedAt": _sk.get("updatedAt"), "byTicker": _tr_by},
+          open(f"{OUT}/trades-data.json", "w"), separators=(",", ":"), ensure_ascii=False)
 data_json = json.dumps(slim_records, separators=(",", ":"), ensure_ascii=False)
 pool_sectors = {d.get("sector") for d in records}
 bench_slim = json.dumps({"market": BENCH["market"],
