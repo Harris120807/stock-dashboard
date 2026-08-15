@@ -971,6 +971,24 @@ edit: extract `<script>` contents, `node --check` them, then republish via
   only in-session and was lost to a container restart — owner must re-paste;
   until then digest emails print the raw form name, harmless).
 
+## Command v2 + insider trades live (2026-08-15)
+
+- **Command (/command/) is a multi-panel workspace** (owner rejected the
+  single-focus v1): L1/L2/L4/L6 grid layouts, each panel independently runs
+  TICKER + FUNCTION; command grammar `NVDA VAL 3` / `3 NVDA VAL` targets a
+  panel, bare ticker keeps function, bare function keeps ticker; Alt+1..6 /
+  click / Tab switch active panel; Up/Down = history; HELP overlay; CLR.
+  Functions: DES VAL TECH OWN INS EARN PEER GP + market-wide MOV WIRE SEC
+  SCR. Workspace persists in localStorage `vt-cmd-ws`. Function registry in
+  pro/command.html is where function #13 gets added.
+- **trades-data.json** published at site root: Form 4 insider transactions
+  per ticker (name/role/code/dir/sh/px/after, 120d window, cap 25 published
+  / 40 stored). Seeded 2026-08-15: 3,962 trades across 298 tickers. INS
+  function + future retail surfaces read it; page shows "awaiting first
+  data publish" if absent. EU rows have none (PDMR notices are RNS-side —
+  future work). Stakes events now carry `parties` (EFTS display_names,
+  178 backfilled), `dir` (new/inc/dec/exit at publish), `id`, `ts`.
+
 ## Multi-agent coordination
 
 - **Lanes**: (1) UI/template → `template.html` on `claude/state`; (2) scoring/pipeline →
