@@ -1,5 +1,5 @@
 {
- "updatedAt": "2026-08-24T11:05:47.617789+00:00",
+ "updatedAt": "2026-08-24T11:22:04.886396+00:00",
  "tickers": [
   "NVDA",
   "AAPL",
@@ -1178,17 +1178,7 @@
   "TTE.PA",
   "UCG.MI"
  ],
- "added": [
-  "KGC",
-  "MRNA"
- ],
+ "added": [],
  "dropped": [],
- "fellOut": [
-  "ABI.BR",
-  "CFR.SW",
-  "CLS",
-  "IRM",
-  "P",
-  "UAL"
- ]
+ "fellOut": []
 }
