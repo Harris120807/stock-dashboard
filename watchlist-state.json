@@ -1,13 +1,13 @@
 {
  "buy": [
   "VOD",
-  "BNP.PA",
-  "SKHY"
+  "SKHY",
+  "BNP.PA"
  ],
  "sell": [
   "BE",
   "CCJ",
   "ARM"
  ],
- "updatedAt": "2026-09-04T07:47:54.638242+00:00"
+ "updatedAt": "2026-09-04T08:47:39.669940+00:00"
 }
