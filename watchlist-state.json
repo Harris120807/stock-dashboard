@@ -1,13 +1,13 @@
 {
  "buy": [
   "GOOD",
-  "MSTR",
-  "SKHY"
+  "ALL",
+  "MSTR"
  ],
  "sell": [
   "CCJ",
   "ARM",
   "TSLA"
  ],
- "updatedAt": "2026-09-17T11:47:20.382971+00:00"
+ "updatedAt": "2026-09-17T12:47:56.517204+00:00"
 }
