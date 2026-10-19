@@ -1,13 +1,13 @@
 {
  "buy": [
-  "SKHY",
   "MSTR",
-  "VOD"
+  "SKHY",
+  "UMC"
  ],
  "sell": [
   "CCJ",
   "ARM",
   "CRWD"
  ],
- "updatedAt": "2026-10-19T12:47:51.861408+00:00"
+ "updatedAt": "2026-10-19T13:48:05.596781+00:00"
 }
