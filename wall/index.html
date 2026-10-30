@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ValueTally Wall</title>
+<meta name="theme-color" content="#07090d">
+<link rel="icon" href="/icon-192.png">
+<style>
+:root{
+  --bg:#07090d; --bg-2:#0b0e14; --hair:#1a1e26; --hair-2:#232833;
+  --ink:#f2f4f8; --ink-2:#9aa3b2; --ink-3:#5c6472;
+  --up:#0ca38a; --dn:#d03b3b; --mid:#24262b;
+  --sans:system-ui,-apple-system,'Segoe UI',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font:12px/1.35 var(--sans);overflow:hidden}
+.tnum{font-variant-numeric:tabular-nums}
+.up{color:var(--up)}.dn{color:var(--dn)}.flat{color:var(--ink-3)}
+#wall{display:grid;height:calc(100vh - 30px);
+  grid-template-rows:96px 1fr 40px;
+  grid-template-columns:1fr 440px;
+  grid-template-areas:"strip strip" "map side" "tape tape"}
+/* ---------- aggregate strip ---------- */
+#strip{grid-area:strip;display:flex;align-items:stretch;border-bottom:1px solid var(--hair-2)}
+#strip .ident{width:212px;flex:none;padding:14px 0 0 20px;border-right:1px solid var(--hair)}
+#strip .ident .b1{font-size:15px;font-weight:700;letter-spacing:3px}
+#strip .ident .b1 span{color:var(--ink-3)}
+#strip .ident .b2{font-size:10px;color:var(--ink-3);letter-spacing:1.5px;margin-top:4px}
+#strip .ident .clock{font-size:10px;color:var(--ink-2);margin-top:6px}
+.agg{flex:1;padding:12px 0 0 22px;border-right:1px solid var(--hair)}
+.agg:last-child{border-right:none}
+.agg .lb{font-size:9.5px;font-weight:600;letter-spacing:1.6px;color:var(--ink-3);text-transform:uppercase}
+.agg .v{font-size:38px;font-weight:700;line-height:1.15;letter-spacing:-1px}
+.agg .s{font-size:10px;color:var(--ink-2);margin-top:1px}
+/* ---------- treemap ---------- */
+#map{grid-area:map;position:relative;border-right:1px solid var(--hair-2);display:flex;flex-direction:column}
+#treemap{flex:1;position:relative;margin:6px}
+.tmSec{position:absolute;outline:1px solid var(--bg)}
+.tmSecLbl{position:absolute;left:3px;top:1px;font-size:9px;font-weight:700;letter-spacing:1px;color:rgba(255,255,255,.55);
+  text-transform:uppercase;white-space:nowrap;overflow:hidden;max-width:calc(100% - 6px);pointer-events:none;z-index:3;
+  text-shadow:0 1px 2px rgba(0,0,0,.8)}
+.tile{position:absolute;outline:2px solid var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;
+  overflow:hidden;cursor:default}
+.tile .tk{font-weight:700;line-height:1.1}
+.tile .pc{line-height:1.1;opacity:.92}
+#breadth{flex:none;height:54px;padding:6px 14px 10px;border-top:1px solid var(--hair)}
+#breadth .lbl{display:flex;justify-content:space-between;font-size:9.5px;letter-spacing:1.4px;color:var(--ink-3);
+  text-transform:uppercase;margin-bottom:5px}
+#modeTog{position:absolute;top:10px;right:12px;z-index:6;display:flex;border:1px solid var(--hair-2);background:var(--bg)}
+#modeTog button{font:700 9.5px var(--sans);letter-spacing:1.4px;color:var(--ink-3);background:none;border:none;
+  padding:5px 12px;cursor:pointer;text-transform:uppercase}
+#modeTog button.on{background:var(--ink);color:var(--bg)}
+#bbar{display:flex;gap:2px;height:16px}
+#bbar div{display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;color:#fff}
+#mapTip{position:fixed;pointer-events:none;display:none;z-index:50;background:#161a22;border:1px solid var(--hair-2);
+  padding:7px 10px;font-size:11px;box-shadow:0 4px 18px rgba(0,0,0,.6)}
+#mapTip .t1{font-weight:700;font-size:12px}
+#mapTip .t2{color:var(--ink-2);margin-top:2px}
+/* ---------- side ---------- */
+#side{grid-area:side;display:grid;grid-template-rows:auto 1fr auto 1fr;overflow:hidden}
+.sideHead{padding:8px 16px 4px;font-size:9.5px;font-weight:700;letter-spacing:1.8px;color:var(--ink-3);
+  text-transform:uppercase;border-bottom:1px solid var(--hair)}
+#movers{overflow:hidden;padding:4px 16px;display:grid;grid-template-columns:1fr 1fr;gap:0 18px}
+.mrow{display:flex;align-items:baseline;gap:8px;padding:4.5px 0;border-bottom:1px solid var(--hair)}
+.mrow .tk{font-weight:700;font-size:13px;width:58px;flex:none}
+.mrow .px{color:var(--ink-3);font-size:10.5px;flex:1;text-align:right}
+.mrow .ch{font-size:14px;font-weight:700;width:64px;text-align:right}
+#scorers{overflow:hidden;padding:4px 16px}
+.srow{display:flex;align-items:center;gap:9px;padding:4px 0;border-bottom:1px solid var(--hair)}
+.srow .tk{font-weight:700;font-size:12.5px;width:64px;flex:none}
+.srow .nm{font-size:10px;color:var(--ink-3);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sbar{width:110px;height:8px;position:relative;flex:none}
+.sbar::before{content:'';position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--hair-2)}
+.sbar i{position:absolute;top:0;bottom:0;border-radius:2px}
+.srow .sv{width:44px;text-align:right;font-size:12px;font-weight:700}
+/* ---------- tape ---------- */
+#tape{grid-area:tape;border-top:1px solid var(--hair-2);overflow:hidden;display:flex;align-items:center;background:var(--bg-2)}
+#tape .cap{flex:none;padding:0 14px;font-size:9.5px;font-weight:700;letter-spacing:1.8px;color:var(--ink-3);
+  border-right:1px solid var(--hair-2);line-height:39px}
+#tapeClip{flex:1;overflow:hidden;position:relative;height:100%}
+#tapeRun{position:absolute;white-space:nowrap;line-height:39px;animation:run 90s linear infinite}
+#tapeRun span.itm{margin-right:44px;font-size:11.5px;color:var(--ink-2)}
+#tapeRun b{color:var(--ink)}
+#tapeRun .frm{color:var(--up);font-weight:700;letter-spacing:.5px}
+@keyframes run{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+#foot{height:30px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-size:10px;color:var(--ink-3);
+  border-top:1px solid var(--hair);background:var(--bg)}
+
+/* ---------- product switcher ---------- */
+#strip .ident .b1 a{color:var(--ink);text-decoration:none}
+#switch{display:flex;gap:12px;font-size:9.5px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase}
+#switch a{color:var(--ink-3);text-decoration:none}
+#switch a:hover{color:var(--ink)}
+#switch a.cur{color:var(--ink);border-bottom:1px solid var(--up);cursor:default}
+
+/* ---------- first-visit gate ---------- */
+#gate{position:fixed;inset:0;z-index:100;background:rgba(4,6,9,.86);display:flex;align-items:center;justify-content:center;padding:20px}
+#gate[hidden]{display:none}
+#gate .gcard{max-width:560px;background:var(--bg-2);border:1px solid var(--hair-2);padding:24px 28px;box-shadow:0 10px 44px rgba(0,0,0,.6)}
+#gate h2{font-size:12px;font-weight:700;letter-spacing:2.2px;text-transform:uppercase;margin-bottom:12px}
+#gate p{color:var(--ink-2);margin-bottom:10px;font-size:12px;line-height:1.55}
+#gate p b{color:var(--ink);font-weight:600}
+#gate button{font:700 11px var(--sans);letter-spacing:1.6px;text-transform:uppercase;background:var(--ink);color:var(--bg);border:0;padding:9px 22px;cursor:pointer;margin-top:6px}
+#gate button:hover{background:#fff}
+
+/* ---------- data-unavailable ---------- */
+#dataErr{position:fixed;inset:0;z-index:90;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:20px;text-align:center}
+#dataErr[hidden]{display:none}
+#dataErr .dcard{max-width:460px}
+#dataErr h2{color:var(--dn);font-size:13px;letter-spacing:2px;text-transform:uppercase;margin-bottom:10px}
+#dataErr p{color:var(--ink-2);margin-bottom:14px;line-height:1.5;font-size:12px}
+#dataErr button{font:700 11px var(--sans);letter-spacing:1.4px;background:var(--ink);color:var(--bg);border:0;padding:8px 18px;cursor:pointer}
+#dataErr a{color:var(--ink-2)}
+
+/* ---------- small-screen notice ---------- */
+#mobNote{display:none;position:fixed;left:0;right:0;top:0;z-index:80;background:var(--bg-2);border-bottom:1px solid var(--hair-2);padding:8px 12px;align-items:center;gap:10px;font-size:11px;color:var(--ink)}
+#mobNote span{flex:1}
+#mobNote a{color:var(--ink)}
+#mobNote button{font:inherit;background:none;border:0;color:var(--ink-3);cursor:pointer;padding:2px 6px}
+@media(max-width:699px){#mobNote:not(.off){display:flex}}
+</style>
+</head>
+<body>
+<div id="wall">
+  <div id="strip">
+    <div class="ident">
+      <div class="b1"><a href="/">VALUETALLY</a><span> WALL</span></div>
+      <div class="b2">US 300 · UK/EU 30 UNIVERSE</div>
+      <div class="clock tnum" id="clock"></div>
+    </div>
+    <div id="aggs" style="display:flex;flex:1"></div>
+  </div>
+  <div id="map">
+    <div id="modeTog"><button data-m="day" class="on">Day</button><button data-m="week">Week</button></div>
+    <div id="treemap"></div>
+    <div id="breadth">
+      <div class="lbl"><span>Market breadth — day</span><span id="breadthPct" class="tnum"></span></div>
+      <div id="bbar"></div>
+    </div>
+  </div>
+  <div id="side">
+    <div class="sideHead">Top movers — day</div>
+    <div id="movers"></div>
+    <div class="sideHead">Biggest score changes</div>
+    <div id="scorers"></div>
+  </div>
+  <div id="tape"><div class="cap">FILINGS</div><div id="tapeClip"><div id="tapeRun"></div></div></div>
+</div>
+<div id="foot">
+  <span>Not investment advice · Data: Finnhub &amp; Yahoo Finance</span>
+  <nav id="switch"><a href="/app/">Retail</a><a href="/command/">Command</a><a class="cur" href="/wall/" aria-current="page">Wall</a><a href="/ledger/">Ledger</a></nav>
+</div>
+<div id="mapTip"></div>
+
+<div id="mobNote"><span>Built for desktop — the <a href="/app/">Retail app</a> is the mobile experience.</span><button id="mobX" aria-label="Dismiss">✕</button></div>
+
+<div id="dataErr" hidden><div class="dcard">
+  <h2>Data unavailable</h2>
+  <p>The market snapshot couldn't be loaded. It may be a temporary network issue — retry, or use the Retail app.</p>
+  <button onclick="location.reload()">Retry</button> &nbsp; <a href="/app/">Retail app →</a>
+</div></div>
+
+<div id="gate" hidden><div class="gcard">
+  <h2>Before you use ValueTally</h2>
+  <p>This is a <b>mechanical screen</b>: scores are computed from valuation multiples, technicals and analyst data by fixed rules. Nothing here is investment advice or a recommendation to buy or sell anything.</p>
+  <p>Data comes from <b>Finnhub &amp; Yahoo Finance</b> and may be delayed, incomplete or wrong. For information only — always do your own research.</p>
+  <button id="gateOk">I understand</button>
+</div></div>
+<script>
+'use strict';
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const SYM={USD:'$',EUR:'€',GBp:'',CHF:'CHF ',DKK:'kr '};
+function nf(v,dp=2){return v==null||isNaN(v)?'—':Number(v).toLocaleString('en-US',{minimumFractionDigits:dp,maximumFractionDigits:dp})}
+function money(cur,v){if(v==null)return'—';const dp=v>=1000?0:2;
+  if(cur==='GBp')return nf(v,dp)+'p';return (SYM[cur]??cur+' ')+nf(v,dp)}
+function pct(v,dp=1){if(v==null||isNaN(v))return'—';return (v>0?'+':'')+nf(v,dp)+'%'}
+function median(a){const v=a.filter(x=>x!=null&&!isNaN(x)).sort((x,y)=>x-y);
+  if(!v.length)return null;const m=v.length>>1;return v.length%2?v[m]:(v[m-1]+v[m])/2}
+
+/* diverging color: dayChange -> teal/red through neutral, clamped ±3% */
+let MODE='day';
+const chg=r=>MODE==='day'?r.dayChange:r.weekChange;
+const POS=[12,163,138],NEG=[208,59,59],MID=[36,38,43];
+function divColor(v){
+  if(v==null)return 'rgb(26,30,38)';
+  const t=Math.max(-1,Math.min(1,v/(MODE==='day'?3:6)));
+  const a=t>=0?POS:NEG,k=Math.abs(t);
+  const mix=MID.map((m,i)=>Math.round(m+(a[i]-m)*Math.pow(k,0.75)));
+  return 'rgb('+mix.join(',')+')';
+}
+function inkFor(rgb){ /* luminance-picked label ink */
+  const m=rgb.match(/\d+/g).map(Number);
+  const L=(0.2126*m[0]+0.7152*m[1]+0.0722*m[2])/255;
+  return L>0.55?'#10131a':'#f2f4f8';
+}
+
+/* first-visit gate + small-screen notice */
+(function(){
+  let agreed='1';
+  try{agreed=localStorage.getItem('sd-agreed-v1');}catch(e){}
+  if(agreed!=='1')$('#gate').hidden=false;
+  $('#gateOk').addEventListener('click',()=>{
+    try{localStorage.setItem('sd-agreed-v1','1');}catch(e){}
+    $('#gate').hidden=true;
+  });
+  let mobOff=false;
+  try{mobOff=sessionStorage.getItem('vt-pro-mob')==='1';}catch(e){}
+  if(mobOff)$('#mobNote').classList.add('off');
+  $('#mobX').addEventListener('click',()=>{
+    $('#mobNote').classList.add('off');
+    try{sessionStorage.setItem('vt-pro-mob','1');}catch(e){}
+  });
+})();
+
+let DATA=[],STAKES={events:[]};
+Promise.all(['/data.json','/stakes-data.json'].map(f=>fetch(f).then(r=>{if(!r.ok)throw new Error(f+' '+r.status);return r.json();})))
+.then(([d,st])=>{DATA=d;STAKES=st;renderAll();})
+.catch(()=>{ $('#dataErr').hidden=false; });
+
+function tick(){const n=new Date();
+  $('#clock').textContent=n.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})
+    +' · '+n.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+' UK';}
+setInterval(tick,1000);tick();
+
+function renderAll(){renderAggs();renderTreemap();renderBreadth();renderMovers();renderScorers();renderTape();}
+
+/* ---------- aggregates ---------- */
+function renderAggs(){
+  const ch=DATA.map(r=>r.dayChange).filter(v=>v!=null);
+  const avg=ch.reduce((s,v)=>s+v,0)/ch.length;
+  const adv=ch.filter(v=>v>0).length,dec=ch.filter(v=>v<0).length;
+  const mpe=median(DATA.map(r=>r.pe));
+  const known=DATA.filter(r=>r.t200!=null);
+  const above=known.filter(r=>r.t200===1).length/known.length*100;
+  const mcs=median(DATA.map(r=>r.combinedScore));
+  const sUp=DATA.filter(r=>(r.scoreDelta||0)>=5).length,sDn=DATA.filter(r=>(r.scoreDelta||0)<=-5).length;
+  const cells=[
+    ['Universe avg move',pct(avg,2),DATA.length+' names, unweighted',avg>0?'up':avg<0?'dn':''],
+    ['Advance / decline',adv+' <span style="color:var(--ink-3)">/</span> '+dec,(ch.length-adv-dec)+' unchanged',adv>=dec?'up':'dn'],
+    ['Median P/E',nf(mpe,1),'trailing, scored names',''],
+    ['Above 200-day',nf(above,0)+'%',known.length+' with trend data',above>=50?'up':'dn'],
+    ['Median combined',nf(mcs,1),'score ups '+sUp+' · downs '+sDn,''],
+  ];
+  $('#aggs').innerHTML=cells.map(([lb,v,s,c])=>
+    '<div class="agg"><div class="lb">'+lb+'</div><div class="v tnum '+c+'">'+v+'</div><div class="s">'+s+'</div></div>').join('');
+}
+
+/* ---------- squarified treemap ---------- */
+function squarify(items,x,y,w,h){
+  /* items: [{v,...}] sorted desc; returns [{x,y,w,h,item}] */
+  const out=[],total=items.reduce((s,i)=>s+i.v,0);
+  if(!total)return out;
+  let scale=w*h/total,row=[],rest=items.slice();
+  let rx=x,ry=y,rw=w,rh=h;
+  const worst=(row,len)=>{
+    const s=row.reduce((a,b)=>a+b.v*scale,0);
+    let mx=0;
+    for(const it of row){const a=it.v*scale;
+      const r=Math.max(len*len*a/(s*s),s*s/(len*len*a));if(r>mx)mx=r;}
+    return mx;};
+  const layoutRow=row=>{
+    const s=row.reduce((a,b)=>a+b.v*scale,0);
+    const horiz=rw<rh;           /* lay row along the shorter side */
+    const len=horiz?rw:rh, thick=s/len;
+    let off=0;
+    for(const it of row){
+      const l=it.v*scale/thick;
+      if(horiz)out.push({x:rx+off,y:ry,w:l,h:thick,item:it});
+      else out.push({x:rx,y:ry+off,w:thick,h:l,item:it});
+      off+=l;}
+    if(horiz){ry+=thick;rh-=thick}else{rx+=thick;rw-=thick}
+  };
+  while(rest.length){
+    const it=rest[0],len=Math.min(rw,rh);
+    if(!row.length||worst(row.concat(it),len)<=worst(row,len)){row.push(it);rest.shift();}
+    else{layoutRow(row);row=[];}
+  }
+  if(row.length)layoutRow(row);
+  return out;
+}
+let tiles=[];
+function renderTreemap(){
+  const box=$('#treemap'),W=box.clientWidth,H=box.clientHeight;
+  const bySec={};
+  DATA.forEach(r=>{if(r.marketCap>0)(bySec[r.sector||'Other']??=[]).push(r)});
+  const secs=Object.entries(bySec).map(([name,rows])=>({name,rows,v:rows.reduce((s,r)=>s+r.marketCap,0)}))
+    .sort((a,b)=>b.v-a.v);
+  const secRects=squarify(secs,0,0,W,H);
+  let h='';tiles=[];
+  for(const sr of secRects){
+    const showLbl=sr.w>78&&sr.h>34;
+    h+='<div class="tmSec" style="left:'+sr.x+'px;top:'+sr.y+'px;width:'+sr.w+'px;height:'+sr.h+'px">'
+      +(showLbl?'<div class="tmSecLbl">'+esc(sr.item.name)+'</div>':'')+'</div>';
+    const rows=sr.item.rows.map(r=>({v:r.marketCap,r})).sort((a,b)=>b.v-a.v);
+    const inner=squarify(rows,sr.x,sr.y,sr.w,sr.h);
+    for(const c of inner){
+      const r=c.item.r,cv=chg(r),bg=divColor(cv),ink=inkFor(bg);
+      const big=c.w>=46&&c.h>=30,med=!big&&c.w>=34&&c.h>=18;
+      const fs=Math.min(16,Math.max(9,Math.sqrt(c.w*c.h)/6));
+      h+='<div class="tile" data-t="'+esc(r.ticker)+'" style="left:'+c.x.toFixed(1)+'px;top:'+c.y.toFixed(1)
+        +'px;width:'+c.w.toFixed(1)+'px;height:'+c.h.toFixed(1)+'px;background:'+bg+';color:'+ink+'">'
+        +(big?'<div class="tk" style="font-size:'+fs.toFixed(0)+'px">'+esc(r.ticker)+'</div>'
+             +'<div class="pc tnum" style="font-size:'+Math.max(8,fs-4).toFixed(0)+'px">'+pct(cv)+'</div>'
+         :med?'<div class="tk" style="font-size:9px">'+esc(r.ticker)+'</div>':'')
+        +'</div>';
+      tiles.push(r.ticker);
+    }
+  }
+  box.innerHTML=h;
+  if(box._wired)return;box._wired=1;
+  const tip=$('#mapTip');
+  box.addEventListener('mousemove',e=>{
+    const t=e.target.closest('.tile');
+    if(!t){tip.style.display='none';return}
+    const r=DATA.find(x=>x.ticker===t.dataset.t);if(!r)return;
+    tip.innerHTML='<div class="t1">'+esc(r.ticker)+' <span class="tnum '+(chg(r)>0?'up':chg(r)<0?'dn':'flat')+'">'+pct(chg(r))+'</span> <span style="color:var(--ink-3)">'+MODE+'</span></div>'
+      +'<div class="t2">'+esc(r.name)+'</div>'
+      +'<div class="t2 tnum">'+money(r.currency,r.price)+' · day '+pct(r.dayChange)+' · wk '+pct(r.weekChange)+' · cap '+(r.marketCap>=1000?'$'+nf(r.marketCap/1000,2)+'T':'$'+nf(r.marketCap,0)+'B')+'</div>';
+    tip.style.display='block';
+    tip.style.left=Math.min(e.clientX+14,innerWidth-260)+'px';
+    tip.style.top=Math.min(e.clientY+14,innerHeight-90)+'px';
+  });
+  box.addEventListener('mouseleave',()=>tip.style.display='none');
+}
+addEventListener('resize',()=>{renderTreemap()});
+document.getElementById('modeTog').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b||b.dataset.m===MODE)return;
+  MODE=b.dataset.m;
+  document.querySelectorAll('#modeTog button').forEach(x=>x.classList.toggle('on',x===b));
+  renderTreemap();renderBreadth();renderMovers();
+});
+
+/* ---------- breadth ---------- */
+function renderBreadth(){
+  document.querySelector('#breadth .lbl span').textContent='Market breadth — '+MODE;
+  const ch=DATA.map(r=>chg(r)).filter(v=>v!=null);
+  const adv=ch.filter(v=>v>0).length,dec=ch.filter(v=>v<0).length,flat=ch.length-adv-dec;
+  $('#breadthPct').textContent=Math.round(adv/ch.length*100)+'% advancing';
+  $('#bbar').innerHTML=
+    '<div style="flex:'+adv+';background:var(--up)">'+adv+' up</div>'
+    +(flat?'<div style="flex:'+flat+';background:var(--mid);color:var(--ink-2)">'+flat+'</div>':'')
+    +'<div style="flex:'+dec+';background:var(--dn)">'+dec+' down</div>';
+}
+
+/* ---------- movers ---------- */
+function renderMovers(){
+  document.querySelector('#side .sideHead').textContent='Top movers — '+MODE;
+  const ok=DATA.filter(r=>chg(r)!=null);
+  const gain=[...ok].sort((a,b)=>chg(b)-chg(a)).slice(0,8);
+  const lose=[...ok].sort((a,b)=>chg(a)-chg(b)).slice(0,8);
+  const row=r=>'<div class="mrow"><span class="tk">'+esc(r.ticker)+'</span>'
+    +'<span class="px tnum">'+money(r.currency,r.price)+'</span>'
+    +'<span class="ch tnum '+(chg(r)>0?'up':'dn')+'">'+pct(chg(r))+'</span></div>';
+  $('#movers').innerHTML='<div>'+gain.map(row).join('')+'</div><div>'+lose.map(row).join('')+'</div>';
+}
+
+/* ---------- score movers ---------- */
+function renderScorers(){
+  const ok=DATA.filter(r=>r.scoreDelta!=null)
+    .sort((a,b)=>Math.abs(b.scoreDelta)-Math.abs(a.scoreDelta)).slice(0,7);
+  const mx=Math.max(...ok.map(r=>Math.abs(r.scoreDelta)))||1;
+  $('#scorers').innerHTML=ok.map(r=>{
+    const v=r.scoreDelta,w=Math.abs(v)/mx*50;
+    return '<div class="srow"><span class="tk">'+esc(r.ticker)+'</span><span class="nm">'+esc(r.name)+'</span>'
+      +'<div class="sbar"><i style="background:var(--'+(v>=0?'up':'dn')+');'+(v>=0?'left:50%;':'right:50%;')+'width:'+w.toFixed(1)+'%"></i></div>'
+      +'<span class="sv tnum '+(v>=0?'up':'dn')+'">'+(v>0?'+':'')+nf(v,1)+'</span></div>';
+  }).join('')+'<div style="font-size:9.5px;color:var(--ink-3);padding:6px 0">combined-score points vs yesterday · ±5 pts is routine churn</div>';
+}
+
+/* ---------- filings tape ---------- */
+function renderTape(){
+  const evs=[...STAKES.events].sort((a,b)=>(b.d||'').localeCompare(a.d||'')||((b.sig||0)-(a.sig||0))).slice(0,26);
+  const itm=e=>{
+    let s='<span class="itm"><span class="frm">'+esc(e.form)+'</span> <b>'+esc(e.t)+'</b>';
+    if(e.filer)s+=' — '+esc(e.filer)+(e.pct!=null?' <span class="tnum">'+nf(e.pct,1)+'%</span>':'');
+    else if(e.hl)s+=' — '+esc(e.hl.slice(0,60));
+    else if(e.terms)s+=' — '+esc(e.terms.slice(0,60));
+    s+=' <span style="color:var(--ink-3)" class="tnum">'+esc((e.d||'').slice(5))+'</span></span>';
+    return s;};
+  const half=evs.map(itm).join('');
+  $('#tapeRun').innerHTML=half+half; /* seamless loop: two copies, translate -50% */
+}
+</script>
+</body>
+</html>
