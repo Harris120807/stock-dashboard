@@ -1,0 +1,813 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0a101d">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<title>ValueTally — Management</title>
+<style>
+:root{
+  --accent:#1e4f91; --page:#f4f6fa; --card:#ffffff; --ink:#16233a; --muted:#5b6b84;
+  --line:#dbe2ee; --good:#1d7a46; --bad:#b03434;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --accent:#3f7cc4; --page:#0a101d; --card:#111a2c; --ink:#e6ecf6; --muted:#8fa0ba; --line:#22304a; --good:#4cc47e; --bad:#e07070; }
+}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--page);color:var(--ink);padding:16px;padding-bottom:48px}
+.wrap{max-width:760px;margin:0 auto}
+.cols{display:grid;gap:14px;grid-template-columns:1fr}
+.cols-flow{}
+.cols-flow>.card{break-inside:avoid;-webkit-column-break-inside:avoid;display:inline-block;width:100%;box-sizing:border-box;vertical-align:top;margin:0 0 14px}
+.atabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.atab{padding:8px 18px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--muted);cursor:pointer;font:inherit;font-weight:600}
+.atab.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.hidden{display:none}
+@media (min-width:1000px){
+  .wrap{max-width:1240px}
+  .cols{grid-template-columns:1.15fr .85fr;align-items:start}
+  .cols-flow{columns:2;column-gap:14px}
+  .req-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+}
+h1{font-size:20px;color:var(--accent);margin:8px 0 2px}
+h2{font-size:15px;margin:0 0 10px}
+.sub{color:var(--muted);font-size:13px;margin:0 0 18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+input[type=text],input[type=password],textarea{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--page);color:var(--ink);font:inherit}
+textarea{min-height:64px;resize:vertical}
+button{padding:10px 16px;border:0;border-radius:8px;background:var(--accent);color:#fff;font:inherit;font-weight:600;cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
+button.ghost{background:transparent;color:var(--accent);border:1px solid var(--line)}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.msg{font-size:13px;margin-top:8px;white-space:pre-wrap}
+.msg.ok{color:var(--good)} .msg.err{color:var(--bad)}
+.toggle{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.toggle:last-child{border-bottom:0}
+.toggle .lbl b{display:block} .toggle .lbl span{font-size:12px;color:var(--muted)}
+.switch{position:relative;width:46px;height:26px;flex:none}
+.switch input{opacity:0;width:0;height:0}
+.slider{position:absolute;inset:0;background:var(--line);border-radius:13px;transition:.15s;cursor:pointer}
+.slider:before{content:"";position:absolute;height:20px;width:20px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.15s}
+.switch input:checked + .slider{background:var(--good)}
+.switch input:checked + .slider:before{transform:translateX(20px)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:4px}
+.kpi{background:var(--page);border:1px solid var(--line);border-radius:10px;padding:10px}
+.kpi b{display:block;font-size:18px} .kpi span{font-size:12px;color:var(--muted)}
+#chart{width:100%;height:180px;margin:10px 0 4px}
+.range button.on{background:var(--accent);color:#fff}
+.range button{background:transparent;color:var(--muted);border:1px solid var(--line);padding:5px 12px;font-size:13px}
+.hint{font-size:12px;color:var(--muted);margin-top:6px}
+.req-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:8px}
+.req-tile{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--page)}
+.req-tile b{font-size:14px}
+.req-tile .meta{font-size:11px;color:var(--muted);margin:2px 0 6px}
+.req-tile button{padding:4px 10px;font-size:12px;width:100%}
+.req-tile .tracked{display:inline-block;width:100%;text-align:center;font-size:12px;color:var(--good);border:1px solid var(--line);border-radius:8px;padding:4px 0}
+a{color:var(--accent)}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>ValueTally management</h1>
+  <p class="sub">Owner console — traffic, kill-switches, universe additions. <a href="/">← back to the dashboard</a></p>
+
+  <div class="card" id="login">
+    <h2>Sign in</h2>
+    <div class="row">
+      <input type="password" id="keyIn" placeholder="Admin key" style="flex:1;min-width:200px" autocomplete="current-password">
+      <button id="loginBtn">Unlock</button>
+    </div>
+    <div class="msg" id="loginMsg"></div>
+  </div>
+
+  <div id="panel" class="hidden">
+
+    <div class="atabs">
+      <button class="atab on" data-atab="overview">Overview</button>
+      <button class="atab" data-atab="requests">Requests</button>
+      <button class="atab" data-atab="backtest">Backtest</button>
+      <button class="atab" data-atab="track">Track record</button>
+      <button class="atab" data-atab="users">Accounts</button>
+    </div>
+
+    <div id="atab-overview">
+    <div class="card">
+      <h2>Status</h2>
+      <div class="kpis">
+        <div class="kpi"><b id="stUpdated">—</b><span>last data refresh</span></div>
+        <div class="kpi"><b id="stCount">—</b><span>stocks tracked</span></div>
+        <div class="kpi"><b id="stWatch">—</b><span>watchlist (buy / sell)</span></div>
+        <div class="kpi"><b id="usTotal">—</b><span>accounts</span></div>
+        <div class="kpi"><b id="usVerified">—</b><span>verified</span></div>
+        <div class="kpi"><b id="usAlerts">—</b><span>alert opt-ins</span></div>
+        <div class="kpi"><b id="usWl">—</b><span>active watchlists</span></div>
+      </div>
+      <div class="hint" id="dqLine">Data health: checking…</div>
+      <div class="hint" id="errLine">Worker errors: checking…</div>
+      <div class="hint">Pipeline runs and logs: <a href="https://github.com/Harris120807/stock-dashboard/actions" target="_blank" rel="noopener">GitHub Actions</a></div>
+    </div>
+
+    <div class="cols-flow">
+    <div class="card">
+      <h2>Pipeline health</h2>
+      <table id="wfTbl"><thead><tr><th>Workflow</th><th>Last run</th><th class="num">Took</th></tr></thead><tbody></tbody></table>
+      <div class="msg" id="wfMsg"></div>
+      <div class="hint">Latest GitHub Actions run per workflow — a failure shows here before it shows up as stale data.
+      The hourly job's scheduled runs often skip themselves on purpose (duplicate-slot dedup); that still counts as success.</div>
+    </div>
+
+    <div class="card">
+      <h2>Traffic <span class="range" style="float:right"><button data-d="7" class="on">7d</button><button data-d="30">30d</button></span></h2>
+      <canvas id="chart"></canvas>
+      <div style="max-height:250px;overflow-y:auto"><table id="routeTbl"><thead><tr><th>Route</th><th class="num">Requests</th></tr></thead><tbody></tbody></table></div>
+      <div class="msg" id="statsMsg"></div>
+      <div class="hint">Anonymous request counts from the API edge (page loads aren't counted directly — the <code>prices</code> route ≈ active viewers, polled every 45s per open tab). Counts are sampled estimates at high volume.</div>
+    </div>
+
+    <div class="card">
+      <h2>Q5 pie (your T212 account)</h2>
+      <input id="pieKey" type="password" placeholder="T212 API key (Pies + Metadata permissions)" autocomplete="off" style="width:100%;box-sizing:border-box;margin-bottom:8px">
+      <input id="pieSecret" type="password" placeholder="Secret key (shown once at creation)" autocomplete="off" style="width:100%;box-sizing:border-box;margin-bottom:8px">
+      <div class="row">
+        <select id="pieCount">
+          <option value="10">Top 10</option>
+          <option value="20" selected>Top 20</option>
+          <option value="30">Top 30</option>
+          <option value="50">Top 50 (pie max)</option>
+        </select>
+        <button id="pieBtn">Create pie</button>
+      </div>
+      <div class="msg" id="pieMsg"></div>
+      <div class="hint">Builds an equal-weight pie of the current top-scored stocks in <b>your own</b> Trading 212 account,
+      named "ValueTally Q5 &lt;date&gt;". The pie is created <b>unfunded</b> — investing, auto-invest and rebalancing all stay
+      in the T212 app. The key is used for this one request and <b>never stored</b> — you can delete it in T212 straight
+      after. Owner tool only; user-facing execution stays off the table.</div>
+    </div>
+
+    <div class="card">
+      <h2>Run pipelines</h2>
+      <div class="row">
+        <button class="ghost" data-wf="hourly-refresh">↻ Hourly refresh</button>
+        <button class="ghost" data-wf="daily-analyst">Analyst prefetch</button>
+        <button class="ghost" data-wf="daily-analyst" data-full="1" title="Fetch the Finnhub bundle for the ENTIRE universe (~45 min) instead of today's rotation fifth">Analyst FULL seed</button>
+        <button class="ghost" data-wf="weekly-universe">Universe rescreen</button>
+        <button class="ghost" data-wf="annual-benchmarks" data-confirm="Rebuilding benchmarks re-anchors EVERY absolute score on the site (normally done once a year, in July). Run it now?">Rebuild benchmarks</button>
+      </div>
+      <div class="msg" id="runMsg"></div>
+      <div class="hint">Each button dispatches the real GitHub Actions workflow — same as the scheduled runs. Progress and logs: <a href="https://github.com/Harris120807/stock-dashboard/actions" target="_blank" rel="noopener">Actions</a>. The hourly refresh publishes in ~3 min; analyst rotation ~15 min; universe rescreen ~5 min.</div>
+    </div>
+
+    <div class="card">
+      <h2>Kill-switches</h2>
+      <div class="toggle"><div class="lbl"><b>Live prices</b><span>45-second price poller on the site (/prices)</span></div>
+        <label class="switch"><input type="checkbox" id="fLivePrices"><span class="slider"></span></label></div>
+      <div class="toggle"><div class="lbl"><b>Full refresh button</b><span>public "refresh everything" trigger (/refresh)</span></div>
+        <label class="switch"><input type="checkbox" id="fFullRefresh"><span class="slider"></span></label></div>
+      <div class="toggle"><div class="lbl"><b>Per-stock refresh</b><span>detail-card refresh buttons (/quote, /metric)</span></div>
+        <label class="switch"><input type="checkbox" id="fStockRefresh"><span class="slider"></span></label></div>
+      <div class="msg" id="cfgMsg"></div>
+      <div class="hint">Changes reach every visitor within about a minute. Flags fail open — if config storage is unreachable, the site keeps working.</div>
+    </div>
+
+    <div class="card">
+      <h2>Security</h2>
+      <div class="kpis">
+        <div class="kpi"><b id="secAdmin">—</b><span>failed admin keys (24h)</span></div>
+        <div class="kpi"><b id="secLogin">—</b><span>failed logins (24h)</span></div>
+        <div class="kpi"><b id="secCanary">—</b><span>canary account</span></div>
+      </div>
+      <table id="secTbl" class="hidden"><thead><tr><th>Event</th><th>When</th><th>From</th></tr></thead><tbody></tbody></table>
+      <div class="msg" id="secMsg"></div>
+      <div class="hint">Tripwires on the accounts database: failed key/login attempts are logged at the edge, and a decoy
+      "canary" account — whose credentials exist nowhere — pushes a phone alert the moment anything touches it.
+      An hourly check also watches for mass deletions and brute-force bursts.</div>
+    </div>
+
+    <div class="card">
+      <h2>Email broadcast</h2>
+      <input id="bcSubject" type="text" placeholder="Subject" style="width:100%;box-sizing:border-box;margin-bottom:8px">
+      <textarea id="bcBody" placeholder="Plain-text message — line breaks are kept."></textarea>
+      <div class="row" style="margin-top:10px">
+        <button id="bcBtn">Send to opted-in users</button>
+      </div>
+      <div class="msg" id="bcMsg"></div>
+      <div class="hint">One-off announcement to every verified user with alerts switched on. Two-step: the button first
+      shows the recipient count, then a confirm actually sends. Uses the site-styled email shell with the standard
+      unsubscribe link.</div>
+    </div>
+    </div>
+    </div>
+
+    <div id="atab-requests" class="hidden">
+    <div class="cols">
+    <div class="card">
+      <h2>Visitor requests</h2>
+      <div class="req-grid" id="reqGrid"></div>
+      <div class="msg" id="reqMsg"></div>
+      <div class="hint">Tickers visitors asked for on the requests page, most-requested first. <b>Add</b> looks up the ADR pairing where needed and stages the ticker into the form — review, then submit. Requests disappear from here automatically once the stock is actually live on the dashboard (not just submitted).</div>
+    </div>
+
+    <div class="card">
+      <h2>Add stocks to the universe</h2>
+      <textarea id="tickIn" placeholder="AAPL, TSM, HSBA.L:HSBC"></textarea>
+      <div class="hint">US-listed: just the symbol. European: <b>NATIVE:ADR</b> (native listing for prices, US ADR for fundamentals) — e.g. <code>BMW.DE:BMWYY</code>. Up to 20 per submission. Additions are permanent (append-only pool) and get their full 5-year history immediately.</div>
+      <div class="row" style="margin-top:10px">
+        <button id="addBtn">Validate &amp; add</button>
+        <span class="hint" id="addHint"></span>
+      </div>
+      <div class="msg" id="addMsg"></div>
+    </div>
+    </div>
+    </div>
+
+    <div id="atab-backtest" class="hidden">
+    <div class="card">
+      <h2>Does the score predict returns? <button class="ghost" id="btRun" style="float:right;font-size:13px">Re-run backtest</button></h2>
+      <div class="hint" id="btMeta" style="margin:0 0 10px"></div>
+      <div id="btCharts" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px"></div>
+      <div class="msg" id="btMsg"></div>
+      <div class="hint" id="btCaveats" style="margin-top:12px"></div>
+    </div>
+    </div>
+
+    <div id="atab-track" class="hidden">
+    <div class="card">
+      <h2>Live pick performance</h2>
+      <div class="hint" id="trMeta" style="margin:0 0 10px"></div>
+      <div class="kpis" style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:12px">
+        <div class="kpi"><b id="trBuy">—</b><span>buy picks</span></div>
+        <div class="kpi"><b id="trSell">—</b><span>sell picks</span></div>
+        <div class="kpi"><b id="trBench">—</b><span>whole universe</span></div>
+        <div class="kpi"><b id="trDays">—</b><span>trading days tracked</span></div>
+      </div>
+      <div id="trChart"></div>
+      <div class="msg" id="trMsg"></div>
+      <div class="hint" style="margin-top:12px">Each day the pipeline logs the live top-3 (buy) and bottom-3 (sell) watchlist
+      baskets; the next day's actual moves are credited to yesterday's picks (equal weight, daily rebalance into whatever
+      the baskets then hold, no costs/dividends). This is the real out-of-sample record from the start date — unlike the
+      Backtest tab, nothing is reconstructed. Short history = low confidence; let it run.</div>
+    </div>
+    </div>
+
+    <div id="atab-users" class="hidden">
+    <div class="card">
+      <h2>Accounts</h2>
+      <div class="hint" style="margin:0 0 10px" id="uHint">Every registered account. Emails are shown only here, behind your admin key — they never appear in any public or cached response. The security canary account is hidden.</div>
+      <div style="overflow-x:auto"><table id="uTbl"><thead><tr><th>Email</th><th>Verified</th><th>Alerts</th><th>Watchlist</th><th>Broker link</th><th>Joined</th></tr></thead><tbody></tbody></table></div>
+      <div class="msg" id="uMsg"></div>
+    </div>
+    </div>
+
+    <div class="row" style="justify-content:flex-end"><button class="ghost" id="logoutBtn">Sign out</button></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+const API = 'https://api.valuetally.com';
+const $ = id => document.getElementById(id);
+let KEY = localStorage.getItem('vt-admin-key') || '';
+let statsDays = 7;
+
+const authFetch = (path, opts) => fetch(API + path, {
+  ...(opts || {}),
+  headers: { ...((opts || {}).headers || {}), 'Authorization': 'Bearer ' + KEY },
+});
+
+async function tryLogin(silent) {
+  if (!KEY) return false;
+  try {
+    const r = await authFetch('/admin/ping');
+    if (r.ok) { $('login').classList.add('hidden'); $('panel').classList.remove('hidden'); loadAll(); return true; }
+    if (!silent) $('loginMsg').textContent = r.status === 401 ? 'Wrong key.' : 'Login failed (' + r.status + ').';
+  } catch (e) { if (!silent) $('loginMsg').textContent = 'Network error — try again.'; }
+  if (!silent) $('loginMsg').className = 'msg err';
+  return false;
+}
+$('loginBtn').onclick = () => { KEY = $('keyIn').value.trim(); localStorage.setItem('vt-admin-key', KEY); tryLogin(false); };
+$('keyIn').addEventListener('keydown', e => { if (e.key === 'Enter') $('loginBtn').click(); });
+$('logoutBtn').onclick = () => { localStorage.removeItem('vt-admin-key'); location.reload(); };
+
+function loadAll() { loadStatus(); loadConfig(); loadStats(); loadRequests(); loadUserStats(); loadDataQuality(); loadSecurity(); loadErrors(); loadPipeline(); }
+
+async function loadPipeline() {
+  const NAMES = {
+    'hourly-refresh.yml': 'Hourly refresh', 'daily-analyst.yml': 'Daily analyst',
+    'weekly-universe.yml': 'Weekly universe', 'backtest.yml': 'Backtest',
+    'annual-benchmarks.yml': 'Annual benchmarks', 'add-tickers.yml': 'Add tickers',
+  };
+  try {
+    const d = await authFetch('/admin/pipeline').then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    const tb = $('wfTbl').querySelector('tbody');
+    tb.innerHTML = '';
+    const ago = iso => {
+      const m = Math.round((Date.now() - Date.parse(iso)) / 60000);
+      return m < 60 ? m + ' min ago' : m < 2880 ? Math.round(m / 60) + 'h ago' : Math.round(m / 1440) + 'd ago';
+    };
+    for (const w of d.runs || []) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td></td><td></td><td class="num"></td>';
+      tr.children[0].textContent = NAMES[w.workflow] || w.workflow;
+      if (w.error) { tr.children[1].textContent = 'could not read (' + w.error + ')'; }
+      else if (w.none) { tr.children[1].textContent = 'never run'; }
+      else {
+        const running = w.status !== 'completed';
+        const ok = w.conclusion === 'success';
+        tr.children[1].textContent = (running ? '⏳ running' : (ok ? '✓ ' : '✗ ') + (w.conclusion || '?'))
+          + (w.startedAt ? ' · ' + ago(w.startedAt) : '');
+        tr.children[1].style.color = running ? '' : ok ? 'var(--good)' : 'var(--bad)';
+        tr.children[2].textContent = w.durationSec != null
+          ? (w.durationSec < 90 ? w.durationSec + 's' : Math.round(w.durationSec / 60) + ' min') : '';
+      }
+      tb.appendChild(tr);
+    }
+    $('wfMsg').textContent = '';
+  } catch (e) { $('wfMsg').textContent = 'Could not load workflow runs.'; $('wfMsg').className = 'msg err'; }
+}
+
+async function loadErrors() {
+  const el = $('errLine');
+  try {
+    const d = await authFetch('/admin/errors').then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    if (!d.count24h) { el.textContent = '✓ Worker errors: none in the last 24h.'; return; }
+    const last = (d.recent || [])[0];
+    el.textContent = '⚠ Worker errors: ' + d.count24h + ' in the last 24h' + (last
+      ? ' — latest: ' + last.route + ' (' + (last.detail || 'no detail') + ', '
+        + new Date((last.at || 0) * 1000).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + ')'
+      : '') + '.';
+  } catch (e) { el.textContent = 'Worker errors: could not load.'; }
+}
+
+$('pieBtn').onclick = async () => {
+  const key = $('pieKey').value.trim(), secret = $('pieSecret').value.trim(), count = $('pieCount').value;
+  const msg = $('pieMsg');
+  if (key.length < 10 || secret.length < 10) { msg.textContent = 'Paste the API key and its secret (generate one with Pies + Metadata ticked).'; msg.className = 'msg err'; return; }
+  if (!confirm('Create an unfunded "ValueTally Q5" pie with the top ' + count + ' stocks in YOUR Trading 212 account?')) return;
+  $('pieBtn').disabled = true;
+  msg.textContent = 'Mapping instruments and creating the pie…'; msg.className = 'msg';
+  try {
+    const d = await authFetch('/admin/t212-pie', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, secret, count: Number(count) }),
+    }).then(r => r.json());
+    if (!d.ok) throw new Error(d.error || 'pie creation failed');
+    msg.textContent = '✓ ' + d.name + ' created with ' + d.count + ' stocks. ' + (d.skipped && d.skipped.length ? 'Not on T212, skipped: ' + d.skipped.join(', ') + '. ' : '') + d.note;
+    msg.className = 'msg ok';
+    $('pieKey').value = ''; $('pieSecret').value = '';
+  } catch (e) { msg.textContent = 'Pie creation failed: ' + e.message; msg.className = 'msg err'; }
+  $('pieBtn').disabled = false;
+};
+
+$('bcBtn').onclick = async () => {
+  const subject = $('bcSubject').value.trim(), body = $('bcBody').value.trim();
+  const msg = $('bcMsg');
+  if (!subject || !body) { msg.textContent = 'Subject and message are both required.'; msg.className = 'msg err'; return; }
+  msg.textContent = 'Checking recipients…'; msg.className = 'msg';
+  try {
+    const post = payload => authFetch('/admin/broadcast', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    }).then(r => r.json());
+    const prev = await post({ subject, body });
+    if (typeof prev.recipients !== 'number') throw new Error(prev.error || 'preview failed');
+    if (!prev.recipients) { msg.textContent = 'No opted-in recipients to send to.'; return; }
+    if (!confirm('Send "' + subject + '" to ' + prev.recipients + ' opted-in user' + (prev.recipients === 1 ? '' : 's') + '? This emails real people.')) {
+      msg.textContent = 'Not sent.'; return;
+    }
+    msg.textContent = 'Sending…';
+    const res = await post({ subject, body, confirm: true });
+    if (!res.ok) throw new Error(res.error || 'send failed');
+    msg.textContent = 'Sent to ' + res.sent + ' of ' + res.recipients + ' recipient' + (res.recipients === 1 ? '' : 's') + '.';
+    msg.className = 'msg ok';
+    $('bcSubject').value = ''; $('bcBody').value = '';
+  } catch (e) { msg.textContent = 'Broadcast failed: ' + e.message; msg.className = 'msg err'; }
+};
+
+async function loadSecurity() {
+  try {
+    const d = await authFetch('/admin/security').then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    $('secAdmin').textContent = d.failedAdmin24h;
+    $('secLogin').textContent = d.failedLogin24h;
+    $('secCanary').textContent = d.canaryOk ? '✓ intact' : '⚠ tripped';
+    $('secCanary').style.color = d.canaryOk ? 'var(--good)' : 'var(--bad)';
+    const KINDS = {
+      admin_auth_fail: 'failed admin key', login_fail: 'failed login', signup: 'new signup',
+      password_reset: 'password reset', account_delete: 'account deleted', canary_login: '⚠ CANARY TOUCHED',
+    };
+    const recent = d.recent || [];
+    const tb = $('secTbl').querySelector('tbody');
+    tb.innerHTML = '';
+    for (const e of recent.slice(0, 12)) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td></td><td></td><td></td>';
+      tr.children[0].textContent = KINDS[e.kind] || e.kind;
+      tr.children[0].title = e.detail || '';
+      tr.children[1].textContent = new Date((e.at || 0) * 1000).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+      tr.children[2].textContent = e.country || '';
+      if (e.kind === 'canary_login') tr.style.color = 'var(--bad)';
+      tb.appendChild(tr);
+    }
+    $('secTbl').classList.toggle('hidden', !recent.length);
+    $('secMsg').textContent = recent.length ? '' : 'No security events logged yet — quiet is good.';
+    $('secMsg').className = 'msg';
+  } catch (e) { $('secMsg').textContent = 'Could not load security status.'; $('secMsg').className = 'msg err'; }
+}
+
+async function loadUserStats() {
+  try {
+    const d = await authFetch('/admin/user-stats').then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    $('usTotal').textContent = d.users; $('usVerified').textContent = d.verified;
+    $('usAlerts').textContent = d.alerts; $('usWl').textContent = d.watchlists;
+  } catch (e) { /* tiles stay em-dashed */ }
+}
+
+const DQ_URL = 'https://raw.githubusercontent.com/Harris120807/stock-dashboard/claude/state/data-quality.json';
+async function loadDataQuality() {
+  const el = $('dqLine');
+  try {
+    const d = await fetch(DQ_URL, { cache: 'no-cache' }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    const iss = d.issues || [];
+    el.innerHTML = iss.length
+      ? '⚠ Data health: ' + iss.length + ' flag' + (iss.length === 1 ? '' : 's') + ' this run — ' +
+        iss.slice(0, 6).map(x => `<b>${x.t}</b> (${x.msg})`).join(' · ') + (iss.length > 6 ? ' …' : '')
+      : '✓ Data health: no anomalies flagged in the last refresh.';
+  } catch (e) { el.textContent = 'Data health: no report yet (appears after the next hourly refresh).'; }
+}
+
+const REQ_LOG = 'https://raw.githubusercontent.com/Harris120807/stock-dashboard/claude/state/requests-log.json';
+const REQ_TOPIC = 'harris-stockdash-req-a2962152';
+
+async function loadRequests() {
+  const grid = $('reqGrid');
+  try {
+    const [log, scores, cacheText] = await Promise.all([
+      fetch(REQ_LOG, { cache: 'no-cache' }).then(r => r.json()).catch(() => ({ byTicker: {} })),
+      fetch(API + '/api/scores').then(r => r.json()).catch(() => ({ stocks: [] })),
+      // ntfy's ~12h message cache: requests the pipeline hasn't logged yet
+      fetch('https://ntfy.sh/' + REQ_TOPIC + '/json?poll=1&since=all').then(r => r.ok ? r.text() : '').catch(() => ''),
+    ]);
+    const tracked = new Set((scores.stocks || []).map(s => s.ticker));
+    const by = {};
+    for (const [t, v] of Object.entries(log.byTicker || {})) by[t] = { ...v };
+    // merge cache entries newer than the log's last poll (same title contract
+    // as the requests page / refresh.py — TICK (#N) pairs)
+    const lastPoll = log.lastPollAt || 0;
+    let fresh = 0;
+    cacheText.split('\n').forEach(ln => {
+      try {
+        const ev = JSON.parse(ln);
+        if (ev.event !== 'message' || (ev.time || 0) <= lastPoll) return;
+        if (!(ev.title || '').startsWith('Stock request')) return;
+        const at = new Date((ev.time || 0) * 1000).toISOString();
+        [...(ev.title || '').matchAll(/([A-Z0-9.\-]{1,12}) \(#\d+\)/g)].forEach(m => {
+          const t = m[1];
+          if (t === 'TEST') return;
+          if (!by[t]) by[t] = { count: 0, firstAt: at, lastAt: at };
+          by[t].count++; by[t].lastAt = at; by[t].fresh = true; fresh++;
+        });
+      } catch (e2) {}
+    });
+    // pipeline log stores epoch SECONDS; live cache entries above use ISO strings
+    const toMs = v => typeof v === 'number' ? v * 1000 : (Date.parse(v) || 0);
+    // requests whose stock is already LIVE on the dashboard (in /api/scores,
+    // i.e. actually published — not merely submitted to add-tickers) drop off
+    // the grid automatically; the durable log still remembers them. Aliases
+    // cover fulfilled-under-another-symbol cases: share classes (site tracks
+    // one line per company) and renames.
+    const REQ_ALIAS = { GOOGL: 'GOOG', 'BRK.A': 'BRK-B', 'BRK.B': 'BRK-B', FB: 'META' };
+    const isLive = t => tracked.has(t) || tracked.has(REQ_ALIAS[t]);
+    const all = Object.entries(by);
+    const rows = all.filter(([t]) => !isLive(t))
+      .sort((a, b) => (b[1].count - a[1].count) || (toMs(b[1].lastAt) - toMs(a[1].lastAt)));
+    const done = all.length - rows.length;
+    $('reqMsg').textContent = (fresh ? fresh + ' new since the last pipeline run — grid refreshes every minute. ' : '')
+      + (done ? done + ' fulfilled request' + (done === 1 ? '' : 's') + ' hidden (already live).' : '');
+    $('reqMsg').className = 'msg ok';
+    grid.innerHTML = '';
+    if (!rows.length) {
+      $('reqMsg').textContent = all.length
+        ? 'No open requests — every requested stock is already live on the dashboard.'
+        : 'No visitor requests logged yet.';
+      return;
+    }
+    for (const [t, info] of rows) {
+      const tile = document.createElement('div');
+      tile.className = 'req-tile';
+      const ms = typeof info.lastAt === 'number' ? info.lastAt * 1000 : Date.parse(info.lastAt);
+      const last = ms ? new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '';
+      const b = document.createElement('b'); b.textContent = t;
+      const meta = document.createElement('div'); meta.className = 'meta';
+      meta.textContent = (info.fresh ? 'NEW · ' : '') + info.count + '× requested' + (last ? ' · last ' + last : '');
+      if (info.fresh) meta.style.color = 'var(--good)';
+      tile.append(b, meta);
+      // (already-live tickers never reach this loop — they're filtered above)
+      const btn = document.createElement('button'); btn.textContent = 'Add';
+      btn.onclick = async () => {
+        btn.disabled = true;
+        let staged = t, note = '';
+        if (t.includes('.')) {
+          // non-US listing: look up US ADR candidates and pre-fill the pair
+          btn.textContent = 'Looking up…';
+          try {
+            const d = await authFetch('/admin/adr-lookup?symbol=' + encodeURIComponent(t)).then(r => r.json());
+            const c = (d.candidates || [])[0];
+            if (c) {
+              staged = t + ':' + c.symbol;
+              note = `Suggested ADR for ${t}: ${c.symbol} (${c.exchange}, ${c.name}) — check before submitting.`
+                + ((d.candidates.length > 1) ? ' Alternatives: ' + d.candidates.slice(1).map(x => x.symbol).join(', ') : '');
+            } else {
+              note = `No US ADR found for ${t}${d.name ? ' (' + d.name + ')' : ''} — it likely can't be added without one.`;
+            }
+          } catch (e) { note = 'ADR lookup failed — pair it manually as NATIVE:ADR.'; }
+        }
+        const cur = $('tickIn').value.trim();
+        const have = cur.toUpperCase().split(/[\s,]+/).filter(Boolean);
+        if (!have.some(x => x.split(':')[0] === t)) $('tickIn').value = cur ? cur + ', ' + staged : staged;
+        $('tickIn').dispatchEvent(new Event('input'));
+        if (note) { $('addMsg').textContent = note; $('addMsg').className = 'msg'; }
+        $('tickIn').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        btn.textContent = 'Staged ✓';
+      };
+      tile.append(btn);
+      grid.append(tile);
+    }
+  } catch (e) { $('reqMsg').textContent = 'Could not load the requests log.'; $('reqMsg').className = 'msg err'; }
+}
+
+async function loadStatus() {
+  try {
+    const [w, s] = await Promise.all([
+      fetch(API + '/api/watchlist').then(r => r.json()),
+      fetch(API + '/api/scores').then(r => r.json()),
+    ]);
+    const dt = new Date(w.updatedAt);
+    $('stUpdated').textContent = dt.toLocaleString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' });
+    $('stCount').textContent = s.count;
+    $('stWatch').textContent = (w.buy || []).join(' ') + ' / ' + (w.sell || []).join(' ');
+  } catch (e) { $('stUpdated').textContent = 'unavailable'; }
+}
+
+async function loadConfig() {
+  try {
+    const f = await authFetch('/admin/config').then(r => r.json());
+    $('fLivePrices').checked = !!f.livePrices;
+    $('fFullRefresh').checked = !!f.fullRefresh;
+    $('fStockRefresh').checked = !!f.stockRefresh;
+  } catch (e) { $('cfgMsg').textContent = 'Could not load flags.'; $('cfgMsg').className = 'msg err'; }
+}
+async function saveConfig() {
+  const body = { livePrices: $('fLivePrices').checked, fullRefresh: $('fFullRefresh').checked, stockRefresh: $('fStockRefresh').checked };
+  $('cfgMsg').textContent = 'Saving…'; $('cfgMsg').className = 'msg';
+  try {
+    const r = await authFetch('/admin/config', { method: 'POST', body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.status);
+    $('cfgMsg').textContent = 'Saved — live within ~60s.'; $('cfgMsg').className = 'msg ok';
+  } catch (e) { $('cfgMsg').textContent = 'Save failed: ' + e.message; $('cfgMsg').className = 'msg err'; loadConfig(); }
+}
+['fLivePrices', 'fFullRefresh', 'fStockRefresh'].forEach(id => $(id).addEventListener('change', saveConfig));
+
+document.querySelectorAll('.range button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.range button').forEach(x => x.classList.toggle('on', x === b));
+  statsDays = +b.dataset.d; loadStats();
+});
+
+async function loadStats() {
+  $('statsMsg').textContent = '';
+  try {
+    const d = await authFetch('/admin/stats?days=' + statsDays).then(r => r.json());
+    if (d.error) throw new Error(d.error);
+    if (d.note) { $('statsMsg').textContent = d.note; $('statsMsg').className = 'msg'; }
+    drawStats(d.rows || []);
+  } catch (e) {
+    $('statsMsg').textContent = 'Traffic data unavailable: ' + e.message;
+    $('statsMsg').className = 'msg err';
+    drawStats([]);
+  }
+}
+
+function drawStats(rows) {
+  const byDay = new Map(), byRoute = new Map();
+  for (const r of rows) {
+    const day = String(r.day).slice(0, 10);
+    const n = +r.requests || 0;
+    byDay.set(day, (byDay.get(day) || 0) + n);
+    byRoute.set(r.route, (byRoute.get(r.route) || 0) + n);
+  }
+  // daily bar chart
+  const cv = $('chart'), dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = cv.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const g = cv.getContext('2d'); g.scale(dpr, dpr); g.clearRect(0, 0, W, H);
+  const css = getComputedStyle(document.documentElement);
+  const accent = css.getPropertyValue('--accent').trim(), muted = css.getPropertyValue('--muted').trim();
+  const days = [...byDay.keys()].sort();
+  const max = Math.max(1, ...byDay.values());
+  g.font = '10px sans-serif'; g.fillStyle = muted;
+  if (!days.length) { g.fillText('No data yet — counters start once the new Worker is deployed.', 10, H / 2); }
+  const bw = Math.min(48, (W - 30) / Math.max(1, days.length));
+  days.forEach((d, i) => {
+    const v = byDay.get(d), h = Math.max(2, (H - 34) * v / max);
+    const x = 10 + i * bw;
+    g.fillStyle = accent; g.fillRect(x, H - 20 - h, bw * 0.72, h);
+    g.fillStyle = muted;
+    if (days.length <= 16 || i % 2 === 0) g.fillText(d.slice(5), x, H - 8);
+    if (days.length <= 16) g.fillText(String(v), x, H - 24 - h);
+  });
+  // route table
+  const tb = $('routeTbl').querySelector('tbody');
+  tb.innerHTML = '';
+  [...byRoute.entries()].sort((a, b) => b[1] - a[1]).forEach(([route, n]) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td></td><td class="num"></td>';
+    tr.children[0].textContent = route || '(root)';
+    tr.children[1].textContent = n.toLocaleString();
+    tb.appendChild(tr);
+  });
+}
+
+$('tickIn').addEventListener('input', () => {
+  const entries = $('tickIn').value.toUpperCase().split(/[\s,]+/).filter(Boolean);
+  const bad = entries.filter(e => !/^[A-Z0-9.\-]{1,12}(:[A-Z0-9.\-]{1,12})?$/.test(e));
+  $('addHint').textContent = entries.length
+    ? (bad.length ? 'Check: ' + bad.join(', ') : entries.length + ' to submit')
+    : '';
+});
+
+$('addBtn').onclick = async () => {
+  const raw = $('tickIn').value.trim();
+  if (!raw) return;
+  $('addBtn').disabled = true;
+  $('addMsg').textContent = 'Dispatching…'; $('addMsg').className = 'msg';
+  try {
+    const r = await authFetch('/admin/add-tickers', { method: 'POST', body: JSON.stringify({ tickers: raw }) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.status);
+    $('addMsg').textContent = '✓ ' + d.note; $('addMsg').className = 'msg ok';
+    $('tickIn').value = ''; $('addHint').textContent = '';
+  } catch (e) { $('addMsg').textContent = 'Failed: ' + e.message; $('addMsg').className = 'msg err'; }
+  $('addBtn').disabled = false;
+};
+
+document.querySelectorAll('[data-wf]').forEach(btn => btn.addEventListener('click', async () => {
+  if (btn.dataset.confirm && !window.confirm(btn.dataset.confirm)) return;
+  btn.disabled = true;
+  $('runMsg').textContent = 'Dispatching ' + btn.textContent.replace('↻ ', '') + '…'; $('runMsg').className = 'msg';
+  try {
+    const r = await authFetch('/admin/run', { method: 'POST', body: JSON.stringify({ workflow: btn.dataset.wf, full: !!btn.dataset.full }) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.status);
+    $('runMsg').textContent = '✓ ' + btn.textContent.replace('↻ ', '') + ' dispatched — watch it on the Actions page.';
+    $('runMsg').className = 'msg ok';
+  } catch (e) { $('runMsg').textContent = 'Failed: ' + e.message; $('runMsg').className = 'msg err'; }
+  setTimeout(() => { btn.disabled = false; }, 5000);   // note: back-to-back re-dispatches within 3 min dedup-skip themselves
+}));
+
+document.querySelectorAll('.atab').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.atab').forEach(x => x.classList.toggle('on', x === b));
+  ['overview', 'requests', 'backtest', 'track', 'users'].forEach(t =>
+    document.getElementById('atab-' + t).classList.toggle('hidden', b.dataset.atab !== t));
+  if (b.dataset.atab === 'requests') loadRequests();
+  if (b.dataset.atab === 'backtest') loadBacktest();
+  if (b.dataset.atab === 'track') loadTrack();
+  if (b.dataset.atab === 'users') loadUsers();
+}));
+
+const BT_URL = 'https://raw.githubusercontent.com/Harris120807/stock-dashboard/claude/state/backtest.json';
+async function loadBacktest() {
+  const charts = $('btCharts');
+  try {
+    const d = await fetch(BT_URL, { cache: 'no-cache' }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    $('btMeta').textContent = `Monthly rebalance over ${d.samples} month-samples, ${d.tickersUsed} tickers, ${d.horizons['12m'].n.toLocaleString()} stock-months. Q5 = highest combined scores at the time, Q1 = lowest. Bars are average forward returns; the dashed line is the equal-weight universe.`;
+    $('btCaveats').textContent = '⚠ ' + d.caveats + ' Run ' + new Date(d.runAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + '.';
+    charts.innerHTML = '';
+    const css = getComputedStyle(document.documentElement);
+    const accent = css.getPropertyValue('--accent').trim(), good = css.getPropertyValue('--good').trim(), bad = css.getPropertyValue('--bad').trim(), muted = css.getPropertyValue('--muted').trim();
+    for (const [hz, h] of Object.entries(d.horizons)) {
+      const qs = Object.entries(h.quintiles).map(([q, v]) => [q, v]);
+      const vals = qs.map(x => x[1]).concat([h.benchmark, 0]).filter(v => v !== null);
+      const lo = Math.min(...vals), hi = Math.max(...vals), span = hi - lo || 1;
+      const W = 240, H = 150, bot = 22, top = 20; // top padding fits the tallest bar's label ABOVE the bar
+      const y = v => top + (H - top - bot) * (1 - (v - lo) / span);
+      const bw = W / qs.length;
+      let s = `<svg viewBox="0 0 ${W} ${H}" style="width:100%">`;
+      qs.forEach(([q, v], i) => {
+        if (v === null) return;
+        const y0 = y(Math.max(0, lo)), yv = y(v);
+        const barTop = Math.min(y0, yv), barH = Math.max(2, Math.abs(y0 - yv));
+        const col = q === '5' ? good : q === '1' ? bad : accent;
+        s += `<rect x="${i * bw + 8}" y="${barTop}" width="${bw - 16}" height="${barH}" rx="3" fill="${col}" opacity="${q === '5' || q === '1' ? 1 : 0.55}"/>`;
+        const labY = v >= 0 ? Math.max(10, barTop - 4) : Math.min(H - bot - 3, barTop + barH + 11);
+        s += `<text x="${i * bw + bw / 2}" y="${labY}" text-anchor="middle" font-size="10" fill="currentColor">${v > 0 ? '+' : ''}${v}%</text>`;
+        s += `<text x="${i * bw + bw / 2}" y="${H - 6}" text-anchor="middle" font-size="10" fill="${muted}">Q${q}</text>`;
+      });
+      if (h.benchmark !== null) {
+        const by = y(h.benchmark);
+        s += `<line x1="0" x2="${W}" y1="${by}" y2="${by}" stroke="${muted}" stroke-dasharray="4,3"/>`;
+        s += `<text x="2" y="${by - 3}" font-size="8.5" fill="${muted}">universe avg ${h.benchmark > 0 ? '+' : ''}${h.benchmark}%</text>`;
+      }
+      s += '</svg>';
+      const box = document.createElement('div');
+      const title = document.createElement('div');
+      title.style.cssText = 'font-size:13px;font-weight:600;margin-bottom:2px';
+      title.textContent = { '1m': '1 month ahead', '3m': '3 months ahead', '6m': '6 months ahead', '12m': '12 months ahead' }[hz] || hz;
+      box.appendChild(title);
+      box.insertAdjacentHTML('beforeend', s);
+      charts.appendChild(box);
+    }
+  } catch (e) {
+    $('btMeta').textContent = '';
+    charts.innerHTML = '';
+    $('btMsg').textContent = 'No backtest results yet — hit "Re-run backtest" and come back in ~2 minutes.';
+    $('btMsg').className = 'msg';
+  }
+}
+$('btRun').onclick = async () => {
+  $('btRun').disabled = true;
+  $('btMsg').textContent = 'Dispatching…'; $('btMsg').className = 'msg';
+  try {
+    const r = await authFetch('/admin/run', { method: 'POST', body: JSON.stringify({ workflow: 'backtest' }) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.status);
+    $('btMsg').textContent = '✓ Running — results land here in ~2 min (reopen this tab to refresh).'; $('btMsg').className = 'msg ok';
+  } catch (e) { $('btMsg').textContent = 'Failed: ' + e.message; $('btMsg').className = 'msg err'; }
+  setTimeout(() => { $('btRun').disabled = false; }, 5000);
+};
+
+// ---- live track record (track-record.json, written hourly by refresh.py) ----
+const TR_URL = 'https://raw.githubusercontent.com/Harris120807/stock-dashboard/claude/state/track-record.json';
+async function loadTrack() {
+  const wrap = $('trChart');
+  try {
+    const d = await fetch(TR_URL, { cache: 'no-cache' }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    const days = d.days || [];
+    if (!days.length) throw new Error('empty');
+    const last = days[days.length - 1];
+    const since = new Date(days[0].d * 86400000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    $('trMeta').textContent = `Tracking since ${since} — cumulative value of 100 put into each basket at the start, rebalanced daily into that day's picks. Today: buy ${last.buy.join(' ')} · sell ${last.sell.join(' ')}.`;
+    const fmt = v => (v >= 100 ? '+' : '') + (v - 100).toFixed(1) + '%';
+    $('trBuy').textContent = fmt(last.buyIdx); $('trSell').textContent = fmt(last.sellIdx);
+    $('trBench').textContent = fmt(last.benchIdx); $('trDays').textContent = days.length;
+    const css = getComputedStyle(document.documentElement);
+    const good = css.getPropertyValue('--good').trim(), bad = css.getPropertyValue('--bad').trim(), muted = css.getPropertyValue('--muted').trim();
+    const series = [['buyIdx', good, 'Buy picks'], ['sellIdx', bad, 'Sell picks'], ['benchIdx', muted, 'Universe']];
+    const vals = days.flatMap(e => series.map(s => e[s[0]]).filter(v => v != null));
+    const lo = Math.min(...vals), hi = Math.max(...vals), span = (hi - lo) || 1;
+    const W = 640, H = 220, padB = 20, padT = 10;
+    const x = i => days.length > 1 ? i / (days.length - 1) * W : W / 2;
+    const y = v => padT + (H - padT - padB) * (1 - (v - lo) / span);
+    let s = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:720px">`;
+    s += `<line x1="0" x2="${W}" y1="${y(100)}" y2="${y(100)}" stroke="${muted}" stroke-dasharray="3,4" opacity="0.5"/>`;
+    for (const [k, col, label] of series) {
+      const pts = days.map((e, i) => e[k] != null ? `${x(i).toFixed(1)},${y(e[k]).toFixed(1)}` : null).filter(Boolean);
+      if (pts.length > 1) s += `<polyline points="${pts.join(' ')}" fill="none" stroke="${col}" stroke-width="2"/>`;
+      else if (pts.length === 1) s += `<circle cx="${pts[0].split(',')[0]}" cy="${pts[0].split(',')[1]}" r="3" fill="${col}"/>`;
+    }
+    s += '</svg>';
+    wrap.innerHTML = s + '<div style="display:flex;gap:16px;font-size:12px;margin-top:4px">' +
+      series.map(([, col, label]) => `<span><span style="display:inline-block;width:14px;height:3px;background:${col};vertical-align:middle;margin-right:5px"></span>${label}</span>`).join('') + '</div>';
+    $('trMsg').textContent = '';
+  } catch (e) {
+    wrap.innerHTML = '';
+    $('trMsg').textContent = 'No track record yet — it starts logging with the next hourly refresh and needs at least two trading days to show a line.';
+    $('trMsg').className = 'msg';
+  }
+}
+
+// ---- accounts list (owner-only; /admin/users) ----
+async function loadUsers() {
+  const tb = document.querySelector('#uTbl tbody');
+  try {
+    const d = await authFetch('/admin/users').then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    const rows = d.users || [];
+    $('uMsg').textContent = rows.length ? '' : 'No accounts yet.';
+    const tick = v => v ? '<span style="color:var(--good)">\u2713</span>' : '<span style="color:var(--muted)">\u2014</span>';
+    tb.innerHTML = rows.map(u => `<tr>
+      <td>${String(u.email).replace(/</g, '&lt;')}</td>
+      <td>${tick(u.verified)}</td>
+      <td>${tick(u.alerts)}</td>
+      <td>${tick(u.has_watchlist)}</td>
+      <td>${tick(u.has_broker)}</td>
+      <td>${(v => { if (!v) return '\u2014'; const d = typeof v === 'number' ? new Date(v * 1000) : new Date(String(v).replace(' ', 'T') + 'Z'); return isNaN(d) ? '\u2014' : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }); })(u.created_at)}</td>
+    </tr>`).join('');
+  } catch (e) {
+    tb.innerHTML = '';
+    $('uMsg').textContent = 'Could not load accounts (' + e.message + ').';
+    $('uMsg').className = 'msg err';
+  }
+}
+
+// keep the requests grid live while the console is open (visible tab only)
+setInterval(() => {
+  if (!document.hidden && !$('panel').classList.contains('hidden')) loadRequests();
+}, 60000);
+
+tryLogin(true);
+</script>
+</body>
+</html>

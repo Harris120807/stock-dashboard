@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script>if (location.hash) location.replace('/app/' + location.hash);</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ValueTally</title>
+<meta name="description" content="ValueTally scores 354 US and European stocks on valuation, technicals and analyst sentiment — one dataset, four instruments: Retail, Command, Ledger and Wall.">
+<meta name="theme-color" content="#0a0e14">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<style>
+:root{
+  --page:#0a0e14; --card:#101620; --card-2:#0d131c;
+  --hair:#1d2632; --hair-2:#283444;
+  --ink:#e6edf5; --ink-2:#93a1b3; --ink-3:#5c6a7c;
+  --accent:#3fb6dd; --tip:#7fd4f2;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+@media (prefers-color-scheme: light){
+  :root{
+    --page:#eef1f5; --card:#ffffff; --card-2:#f6f8fb;
+    --hair:#d7dde6; --hair-2:#c3ccd8;
+    --ink:#182230; --ink-2:#4c5a6c; --ink-3:#8593a4;
+    --accent:#177ba3; --tip:#3fa8cf;
+  }
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--page);color:var(--ink);font:15px/1.5 var(--sans);
+  -webkit-font-smoothing:antialiased;min-height:100vh;display:flex;flex-direction:column}
+a{color:var(--accent)}
+.wrap{width:100%;max-width:1060px;margin:0 auto;padding:0 20px;flex:1}
+
+header{padding:52px 0 8px;text-align:center}
+.wordmark{display:inline-flex;align-items:center;gap:12px;font-size:30px;font-weight:800;
+  letter-spacing:.06em;color:var(--ink)}
+.wordmark svg{width:30px;height:25px;flex:none}
+.tagline{margin-top:14px;font-family:var(--mono);font-size:15px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--accent)}
+.sub{margin:12px auto 0;max-width:560px;color:var(--ink-2);font-size:14px}
+
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:36px 0 10px}
+@media (max-width:760px){.cards{grid-template-columns:1fr}}
+.card{display:block;background:var(--card);border:1px solid var(--hair);border-radius:3px;
+  overflow:hidden;text-decoration:none;color:inherit;transition:border-color .15s,transform .15s}
+.card:hover{border-color:var(--accent);transform:translateY(-2px)}
+.card .shot{display:block;width:100%;height:auto;aspect-ratio:800/500;object-fit:cover;
+  object-position:top;border-bottom:1px solid var(--hair);background:var(--card-2)}
+.card .body{padding:14px 16px 16px}
+.card .row1{display:flex;align-items:baseline;gap:10px}
+.card h2{font-size:17px;font-weight:700;letter-spacing:.02em}
+.card .path{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);letter-spacing:.06em}
+.card .go{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--accent)}
+.card p{margin-top:6px;color:var(--ink-2);font-size:13.5px;line-height:1.5}
+.card .badge{font:600 9.5px var(--mono);letter-spacing:.14em;color:var(--accent);
+  border:1px solid var(--accent);padding:2px 7px;border-radius:2px;text-transform:uppercase;white-space:nowrap}
+
+.note{text-align:center;color:var(--ink-3);font-size:12.5px;padding:6px 0 30px}
+footer{border-top:1px solid var(--hair);padding:18px 20px 26px;text-align:center;
+  color:var(--ink-3);font-size:12px;line-height:1.7}
+footer .sep{margin:0 8px;opacity:.6}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="wordmark">
+      <svg viewBox="0 4 24 19.5" aria-hidden="true"><defs><linearGradient id="bg1" x1="0" y1="0.8" x2="1" y2="0"><stop offset="0" stop-color="var(--accent)"/><stop offset="1" stop-color="var(--tip)"/></linearGradient></defs><path fill="url(#bg1)" stroke="url(#bg1)" stroke-width="2" stroke-linejoin="round" d="M22.6 5.7L2 8l8.7 4.5-.4 9.8z"/></svg>
+      ValueTally
+    </div>
+    <div class="tagline">One dataset · Four instruments</div>
+    <p class="sub">354 US &amp; European stocks scored on valuation, technicals and analyst
+      sentiment — refreshed hourly on trading days. Pick the instrument that fits how you read a market.</p>
+  </header>
+
+  <div class="cards">
+    <a class="card" href="/app/">
+      <img class="shot" src="/previews/retail.jpg" alt="Retail dashboard preview" width="800" height="562">
+      <div class="body">
+        <div class="row1"><h2>Retail</h2><span class="path">/app</span><span class="badge">Full app</span><span class="go">Open →</span></div>
+        <p>The full dashboard: scores, watchlists, portfolio, alerts — built for every screen. Accounts, email digests and the stock request line live here.</p>
+      </div>
+    </a>
+    <a class="card" href="/command/">
+      <img class="shot" src="/previews/command.jpg" alt="Command terminal preview" width="800" height="500">
+      <div class="body">
+        <div class="row1"><h2>Command</h2><span class="path">/command</span><span class="go">Open →</span></div>
+        <p>A keyboard-first terminal: type a ticker and a function — DES, VAL, OWN, TECH — and the dossier loads between a live quote board and the filings wire. Desktop only.</p>
+      </div>
+    </a>
+    <a class="card" href="/ledger/">
+      <img class="shot" src="/previews/ledger.jpg" alt="Ledger grid preview" width="800" height="500">
+      <div class="body">
+        <div class="row1"><h2>Ledger</h2><span class="path">/ledger</span><span class="go">Open →</span></div>
+        <p>Every metric on one sortable sheet: 354 rows, preset column sets for valuation and risk, quintile filters, live medians and a per-stock inspector.</p>
+      </div>
+    </a>
+    <a class="card" href="/wall/">
+      <img class="shot" src="/previews/wall.jpg" alt="Market wall preview" width="800" height="500">
+      <div class="body">
+        <div class="row1"><h2>Wall</h2><span class="path">/wall</span><span class="go">Open →</span></div>
+        <p>The whole market on one screen: a cap-weighted heat map, breadth, movers, score changes and the filings tape. Made to be glanced at, not clicked.</p>
+      </div>
+    </a>
+  </div>
+
+  <p class="note">All four read the same hourly snapshot — same scores, same universe, different lens.</p>
+</div>
+
+<footer>
+  Not investment advice — ValueTally is a mechanical screen, for information only.
+  <span class="sep">·</span> Data: Finnhub &amp; Yahoo Finance
+</footer>
+</body>
+</html>
