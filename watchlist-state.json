@@ -1,13 +1,13 @@
 {
  "buy": [
   "MSTR",
-  "SHEL.L",
-  "SKHY"
+  "SKHY",
+  "SHEL.L"
  ],
  "sell": [
   "BE",
   "CCJ",
   "ARM"
  ],
- "updatedAt": "2026-11-20T19:47:44.679036+00:00"
+ "updatedAt": "2026-11-23T07:47:46.285201+00:00"
 }
